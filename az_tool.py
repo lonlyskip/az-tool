@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import sys
 import io
 import base64
 import uuid
@@ -106,6 +107,14 @@ class AzToolApp:
         self.root.geometry("620x720")
         self.root.minsize(580, 680)
         self.root.configure(bg=BG)
+        icon_path = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "assets", "az-tool-icon.ico")
+        # PyInstaller bundles the same feather icon for the executable and the app window/taskbar.
+        if not os.path.exists(icon_path):
+            icon_path = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "az-tool-icon.ico")
+        try:
+            self.root.iconbitmap(icon_path)
+        except (tk.TclError, OSError):
+            pass
         self.state = load_state()
         self.license_key = tk.StringVar(value=self.state.get("license_key", ""))
         self.discord_id = tk.StringVar(value=self.state.get("discord_id", ""))
