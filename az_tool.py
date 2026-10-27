@@ -150,27 +150,60 @@ class AzToolApp:
                           highlightthickness=1, highlightbackground="#30394d",
                           highlightcolor=ACCENT)
 
-        # Explicit clipboard shortcuts plus a right-click menu, including masked license fields.
+        # Clipboard actions are implemented directly because Tk's virtual Paste event
+        # can silently do nothing in some packaged Windows builds.
         menu = tk.Menu(widget, tearoff=0, bg=PANEL_2, fg=TEXT,
                        activebackground=ACCENT, activeforeground="white")
-        menu.add_command(label="Cut", command=lambda: widget.event_generate("<<Cut>>"))
-        menu.add_command(label="Copy", command=lambda: widget.event_generate("<<Copy>>"))
-        menu.add_command(label="Paste", command=lambda: widget.event_generate("<<Paste>>"))
-        menu.add_command(label="Select all", command=lambda: (widget.select_range(0, "end"), widget.icursor("end")))
+
+        def paste_clipboard(event=None):
+            try:
+                value = self.root.clipboard_get()
+            except tk.TclError:
+                self.status.set("الحافظة فارغة أو تعذر الوصول إليها")
+                return "break"
+            try:
+                if widget.selection_present():
+                    widget.delete("sel.first", "sel.last")
+                widget.insert("insert", value)
+            except tk.TclError:
+                pass
+            return "break"
+
+        def copy_selection(event=None, cut=False):
+            try:
+                value = widget.get("sel.first", "sel.last")
+            except tk.TclError:
+                return "break"
+            self.root.clipboard_clear()
+            self.root.clipboard_append(value)
+            if cut:
+                widget.delete("sel.first", "sel.last")
+            return "break"
+
+        def select_all(event=None):
+            widget.select_range(0, "end")
+            widget.icursor("end")
+            return "break"
+
+        menu.add_command(label="Cut", command=lambda: copy_selection(cut=True))
+        menu.add_command(label="Copy", command=copy_selection)
+        menu.add_command(label="Paste", command=paste_clipboard)
+        menu.add_command(label="Select all", command=select_all)
 
         def show_menu(event):
             try:
+                widget.focus_set()
                 menu.tk_popup(event.x_root, event.y_root)
             finally:
                 menu.grab_release()
 
         widget.bind("<Button-3>", show_menu)
-        widget.bind("<Control-v>", lambda event: (widget.event_generate("<<Paste>>"), "break")[1])
-        widget.bind("<Control-V>", lambda event: (widget.event_generate("<<Paste>>"), "break")[1])
-        widget.bind("<Shift-Insert>", lambda event: (widget.event_generate("<<Paste>>"), "break")[1])
-        widget.bind("<Control-c>", lambda event: (widget.event_generate("<<Copy>>"), "break")[1])
-        widget.bind("<Control-x>", lambda event: (widget.event_generate("<<Cut>>"), "break")[1])
-        widget.bind("<Control-a>", lambda event: (widget.select_range(0, "end"), widget.icursor("end"), "break")[2])
+        widget.bind("<Control-v>", paste_clipboard)
+        widget.bind("<Control-V>", paste_clipboard)
+        widget.bind("<Shift-Insert>", paste_clipboard)
+        widget.bind("<Control-c>", copy_selection)
+        widget.bind("<Control-x>", lambda event: copy_selection(cut=True))
+        widget.bind("<Control-a>", select_all)
         return widget
 
     def button(self, parent, text, command, color=ACCENT, fg="white"):
@@ -248,7 +281,7 @@ class AzToolApp:
     def _activate_worker(self, key):
         try:
             result = post("/api/activate", {"code": key, "device_id": device_id()})
-            if result.get("valid"):
+            if result.get("valid") is True or result.get("success") is True or result.get("activated") is True:
                 self.state["license_key"] = key
                 save_state(self.state)
                 self.root.after(0, lambda: self.status.set("Activated • license accepted"))
