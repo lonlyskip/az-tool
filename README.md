@@ -4,27 +4,28 @@ Windows desktop client for the az Tool licensing service.
 
 ## Run (Windows)
 
-Install Python 3.11+, install the Python dependencies, and install the **Tesseract OCR Windows application** separately. Make sure `tesseract.exe` is on PATH (or configure `pytesseract.pytesseract.tesseract_cmd` in `az_tool.py`).
+Install Python 3.11+, then run:
 
 ```cmd
 py -m pip install -r requirements.txt
 py az_tool.py
 ```
 
+OCR is provided by the `rapidocr-onnxruntime` Python package; **you do not need to install Tesseract or another separate OCR program**. The first package installation downloads its dependencies/models.
+
 ## Current implementation
 
-- Dark English desktop UI.
-- License activation against the deployed Cloudflare Worker.
-- Discord-link request and polling for approval.
-- Spawn Radar toggle, gated on license activation and Discord-link approval.
-- Monitors only while Fortnite is the foreground window.
-- OCR scans a bottom-centre region for “Ascended Brainrot Spawned” and saves a crop around the detected notification to `%APPDATA%\az Tool\captures`.
-- Duplicate suppression uses the recognized notification text and a short cooldown, so later distinct events can still be detected.
-- Radar can be stopped from the UI.
+- Dark desktop UI, license activation, and Discord-link request/approval polling.
+- Radar button is gated on license activation and Discord approval.
+- Monitors the bottom-centre notification region only while Fortnite is the foreground window.
+- Uses bundled Python OCR dependencies to detect “Ascended Brainrot Spawned” and save a crop to `%APPDATA%\az Tool\captures`.
+- Attempts to suppress repeated detections of the same OCR text.
 
-## Important status: Discord delivery is not wired end-to-end yet
+## Important limitations
 
-The deployed Worker/Bot currently does not expose a verified image-event upload + bot-DM delivery route. This build **only saves the cropped notification locally** and reports that status in the UI; it does not claim to DM screenshots. To complete that safely, the Worker must accept authenticated event uploads after validating license/device/link status, and the bot must deliver the image to the linked Discord ID. Do not put bot tokens or admin secrets in this desktop client.
+The capture region is currently configured for a 1920×1080 display and may need adjustment for another resolution or UI scale. Test before relying on it.
+
+**Discord screenshot delivery is not wired end-to-end yet.** The current Worker/Bot implementation has not been verified to provide a secure image-event upload and DM route, so this build saves the crop locally and does not claim to send it to Discord.
 
 ## Build an EXE
 
@@ -33,10 +34,8 @@ py -m pip install pyinstaller
 py -m PyInstaller --onefile --windowed --name "az Tool" az_tool.py
 ```
 
-Tesseract OCR is a separate Windows dependency and is not bundled by that command. Test on the target PC before distributing the EXE.
+The OCR package dependencies may increase the EXE size. Test the resulting executable on the target PC.
 
-## Security notes
+## Security
 
-- Never put `ADMIN_TOKEN`, Discord bot tokens, or Cloudflare secrets in the client or repository.
-- Client-side device IDs are not strong anti-tamper protection by themselves.
-- All production requests must use HTTPS.
+Never place Discord bot tokens, Cloudflare secrets, or admin tokens in this desktop client or repository. Client-side device IDs alone are not strong anti-tamper protection.
