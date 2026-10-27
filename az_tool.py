@@ -114,10 +114,33 @@ class AzToolApp:
         return frame
 
     def entry(self, parent, variable, show=None):
-        return tk.Entry(parent, textvariable=variable, show=show, bg=PANEL_2, fg=TEXT,
-                        insertbackground=TEXT, relief="flat", font=("Segoe UI", 10),
-                        highlightthickness=1, highlightbackground="#30394d",
-                        highlightcolor=ACCENT)
+        widget = tk.Entry(parent, textvariable=variable, show=show, bg=PANEL_2, fg=TEXT,
+                          insertbackground=TEXT, relief="flat", font=("Segoe UI", 10),
+                          highlightthickness=1, highlightbackground="#30394d",
+                          highlightcolor=ACCENT)
+
+        # Explicit clipboard shortcuts plus a right-click menu, including masked license fields.
+        menu = tk.Menu(widget, tearoff=0, bg=PANEL_2, fg=TEXT,
+                       activebackground=ACCENT, activeforeground="white")
+        menu.add_command(label="Cut", command=lambda: widget.event_generate("<<Cut>>"))
+        menu.add_command(label="Copy", command=lambda: widget.event_generate("<<Copy>>"))
+        menu.add_command(label="Paste", command=lambda: widget.event_generate("<<Paste>>"))
+        menu.add_command(label="Select all", command=lambda: (widget.select_range(0, "end"), widget.icursor("end")))
+
+        def show_menu(event):
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+
+        widget.bind("<Button-3>", show_menu)
+        widget.bind("<Control-v>", lambda event: (widget.event_generate("<<Paste>>"), "break")[1])
+        widget.bind("<Control-V>", lambda event: (widget.event_generate("<<Paste>>"), "break")[1])
+        widget.bind("<Shift-Insert>", lambda event: (widget.event_generate("<<Paste>>"), "break")[1])
+        widget.bind("<Control-c>", lambda event: (widget.event_generate("<<Copy>>"), "break")[1])
+        widget.bind("<Control-x>", lambda event: (widget.event_generate("<<Cut>>"), "break")[1])
+        widget.bind("<Control-a>", lambda event: (widget.select_range(0, "end"), widget.icursor("end"), "break")[2])
+        return widget
 
     def button(self, parent, text, command, color=ACCENT, fg="white"):
         return tk.Button(parent, text=text, command=command, bg=color, fg=fg,
