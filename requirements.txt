@@ -1,1 +1,4 @@
-mss>=9.0.1\nPillow>=10.0.0\nrapidocr-onnxruntime>=1.4.4\npywin32>=306\n
+mss>=9.0.1
+Pillow>=10.0.0
+rapidocr-onnxruntime>=1.4.4
+pywin32>=306
