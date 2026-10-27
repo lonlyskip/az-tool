@@ -184,7 +184,12 @@ class AzToolApp:
     def _link_worker(self, key, discord_id):
         try:
             result = post("/api/link/request", {"code": key, "device_id": device_id(), "discord_user_id": discord_id})
-            if result.get("request_id") or result.get("linked"):
+            if result.get("linked"):
+                self.state["discord_id"] = discord_id
+                self._link_verified = True
+                save_state(self.state)
+                self.root.after(0, lambda: self.link_status.set("Discord already linked and verified."))
+            elif result.get("request_id"):
                 self.state["discord_id"] = discord_id
                 self.state["link_request_id"] = result.get("request_id")
                 save_state(self.state)
