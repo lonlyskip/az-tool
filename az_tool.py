@@ -233,7 +233,7 @@ class AzToolApp:
             messagebox.showerror("Radar locked", "Verify and approve your Discord link first.")
             return
         try:
-            import mss, pytesseract
+            import mss, rapidocr_onnxruntime
             from PIL import Image
         except ImportError:
             messagebox.showerror("Missing components", "Install the required packages with:\npy -m pip install -r requirements.txt")
@@ -252,9 +252,11 @@ class AzToolApp:
     def _radar_loop(self):
         try:
             import mss
-            import pytesseract
-            from PIL import Image, ImageOps
+            from rapidocr_onnxruntime import RapidOCR
+            from PIL import Image
+            import numpy as np
             import win32gui
+            ocr = RapidOCR()
         except ImportError:
             self.root.after(0, self.stop_radar)
             return
@@ -270,29 +272,36 @@ class AzToolApp:
                 with mss.mss() as sct:
                     shot = sct.grab(REGION)
                     image = Image.frombytes("RGB", shot.size, shot.rgb)
-                gray = ImageOps.grayscale(image)
-                text = pytesseract.image_to_string(gray, config="--psm 6")
-                normalized = re.sub(r"[^a-z0-9 ]", " ", text.lower())
-                normalized = re.sub(r"\s+", " ", normalized).strip()
-                if "ascended brainrot spawned" in normalized or (
+                detections, _elapsed = ocr(np.array(image))
+                words = detections or []
+                recognized = " ".join(str(item[1]) for item in words if len(item) > 1)
+                normalized = re.sub(r"[^a-z0-9 ]", " ", recognized.lower())
+                normalized = re.sub(r"\\s+", " ", normalized).strip()
+                phrase_found = (
                     "ascended" in normalized and "brainrot" in normalized and "spawned" in normalized
-                ):
-                    boxes = pytesseract.image_to_data(gray, output_type=pytesseract.Output.DICT, config="--psm 6")
+                )
+                if phrase_found:
                     phrase_boxes = []
-                    for i, word in enumerate(boxes["text"]):
-                        w = word.strip().lower()
-                        if w and any(k in w for k in ("ascended", "brainrot", "spawned")):
-                            phrase_boxes.append((boxes["left"][i], boxes["top"][i], boxes["width"][i], boxes["height"][i]))
+                    for item in words:
+                        if len(item) < 2:
+                            continue
+                        word = str(item[1]).strip().lower()
+                        if any(k in word for k in ("ascended", "brainrot", "spawned")):
+                            pts = item[0]
+                            xs = [float(p[0]) for p in pts]
+                            ys = [float(p[1]) for p in pts]
+                            phrase_boxes.append((min(xs), min(ys), max(xs), max(ys)))
                     if phrase_boxes:
-                        x0 = max(0, min(b[0] for b in phrase_boxes) - 45)
-                        y0 = max(0, min(b[1] for b in phrase_boxes) - 20)
-                        x1 = min(image.width, max(b[0] + b[2] for b in phrase_boxes) + 45)
-                        y1 = min(image.height, max(b[1] + b[3] for b in phrase_boxes) + 100)
+                        x0 = max(0, int(min(b[0] for b in phrase_boxes) - 45))
+                        y0 = max(0, int(min(b[1] for b in phrase_boxes) - 20))
+                        x1 = min(image.width, int(max(b[2] for b in phrase_boxes) + 45))
+                        y1 = min(image.height, int(max(b[3] for b in phrase_boxes) + 100))
                         crop = image.crop((x0, y0, x1, y1))
                     else:
                         crop = image
-                    name_text = pytesseract.image_to_string(crop, config="--psm 6").strip()
-                    event_key = re.sub(r"\s+", " ", name_text.lower()).strip()
+                    crop_detections, _ = ocr(np.array(crop))
+                    crop_text = " ".join(str(item[1]) for item in (crop_detections or []) if len(item) > 1)
+                    event_key = re.sub(r"\\s+", " ", crop_text.lower()).strip()
                     now = time.time()
                     if event_key and (event_key != self._last_event_key or now - self._last_event_at > EVENT_COOLDOWN_SECONDS):
                         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
