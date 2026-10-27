@@ -63,6 +63,28 @@ def post(path, payload, timeout=10):
         raise RuntimeError(f"Cannot reach license server: {exc.reason}") from None
 
 
+def arabic_error(message):
+    """Translate common license-server errors into clear Arabic messages."""
+    raw = str(message or "").strip()
+    value = raw.lower()
+
+    if any(term in value for term in ("expired", "expiry", "انته", "منتهي")):
+        return "كود التفعيل منتهي الصلاحية. جدّد الاشتراك أو تواصل مع المسؤول."
+    if any(term in value for term in ("revoked", "revoke", "ملغي", "ملغى", "موقوف")):
+        return "كود التفعيل ملغي أو موقوف. تواصل مع المسؤول."
+    if any(term in value for term in ("bound to another device", "another device", "device mismatch", "جهاز آخر")):
+        return "كود التفعيل مرتبط بجهاز آخر ولا يمكن استخدامه على هذا الجهاز."
+    if any(term in value for term in ("invalid", "not found", "unknown license", "غير صالح", "غير صحيح")):
+        return "كود التفعيل غير صالح أو غير موجود. تأكد من كتابته بشكل صحيح."
+    if any(term in value for term in ("configuration", "internal server", "server error", "http 500")):
+        return "حدث خطأ في إعدادات السيرفر. حاول لاحقًا أو تواصل مع المسؤول."
+    if any(term in value for term in ("cannot reach", "timed out", "connection", "urlopen", "network")):
+        return "تعذر الاتصال بسيرفر التفعيل. تحقق من الإنترنت وحاول مرة أخرى."
+    if raw:
+        return "تعذر تفعيل الكود: " + raw
+    return "تعذر تفعيل الكود لسبب غير معروف. حاول مرة أخرى."
+
+
 def load_state():
     try:
         with open(STATE_FILE, "r", encoding="utf-8") as file:
@@ -226,7 +248,7 @@ class AzToolApp:
             else:
                 self.root.after(0, lambda: self.status.set("Activation failed"))
                 self.root.after(0, self._hide_gated_sections)
-                self.root.after(0, lambda: messagebox.showerror("License", result.get("error", "Activation was rejected.")))
+                self.root.after(0, lambda: messagebox.showerror("فشل التفعيل", arabic_error(result.get("error", "Activation was rejected."))))
         except Exception as exc:
             self.root.after(0, lambda: self.status.set("Server unavailable"))
             self.root.after(0, self._hide_gated_sections)
