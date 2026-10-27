@@ -141,13 +141,18 @@ class AzToolApp:
         self.label(expiry_row, "Subscription", MUTED, 9).pack(side="left")
         tk.Label(expiry_row, textvariable=self.expiry, bg=PANEL, fg=TEXT, font=("Segoe UI", 9, "bold")).pack(side="right")
 
-        discord_card = self.card(self.root, "02  /  Discord verification", "Enter your Discord user ID, then approve the bot's verification request.")
+        self.gated_frame = tk.Frame(self.root, bg=BG)
+        self.gated_frame.pack(fill="x")
+
+        self.discord_card = self.card(self.gated_frame, "02  /  Discord verification", "Enter your Discord user ID, then approve the bot's verification request.")
+        discord_card = self.discord_card
         self.entry(discord_card, self.discord_id).pack(fill="x", ipady=10)
         self.button(discord_card, "VERIFY & SAVE", self.request_link, color="#29314a").pack(anchor="e", pady=(10, 0))
         tk.Label(discord_card, textvariable=self.link_status, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
 
-        radar_card = self.card(self.root, "03  /  Spawn Radar", "Fortnite • Go Up for Brainrot • 1920 × 1080")
+        self.radar_card = self.card(self.gated_frame, "03  /  Spawn Radar", "Fortnite • Go Up for Brainrot • 1920 × 1080")
+        radar_card = self.radar_card
         self.radar_button = self.button(radar_card, "START RADAR", self.toggle_radar, color=GREEN, fg="#07110d")
         self.radar_button.pack(fill="x")
         tk.Label(radar_card, textvariable=self.radar_status, bg=PANEL, fg=MUTED,
@@ -155,12 +160,28 @@ class AzToolApp:
         self.label(radar_card, "Detects “Ascended Brainrot Spawned” and the red character name in the bottom-centre notification area.", MUTED, 9).pack(anchor="w", pady=(5, 0))
         self.label(radar_card, "Notification images are sent in memory to your linked Discord account; no image file is saved.", MUTED, 9).pack(anchor="w", pady=(5, 0))
 
+        # Keep Discord verification and radar hidden until the license validates.
+        self.discord_card.pack_forget()
+        self.radar_card.pack_forget()
+
         footer = tk.Frame(self.root, bg=BG)
         footer.pack(fill="x", padx=28, pady=(10, 18))
         self.label(footer, "License validation • Foreground Fortnite window required • No full-screen upload", MUTED, 8).pack(anchor="w")
         if self.license_key.get().strip():
             self.status.set("Saved key loaded — activate to validate")
         self.root.after(1000, self._refresh_link_state)
+
+    def _show_gated_sections(self):
+        if not self.discord_card.winfo_manager():
+            self.discord_card.pack(fill="x", padx=24, pady=8)
+        if not self.radar_card.winfo_manager():
+            self.radar_card.pack(fill="x", padx=24, pady=8)
+
+    def _hide_gated_sections(self):
+        self.stop_radar()
+        self._link_verified = False
+        self.discord_card.pack_forget()
+        self.radar_card.pack_forget()
 
     def activate(self):
         key = self.license_key.get().strip()
@@ -178,11 +199,14 @@ class AzToolApp:
                 save_state(self.state)
                 self.root.after(0, lambda: self.status.set("Activated • license accepted"))
                 self.root.after(0, lambda: self.expiry.set(str(result.get("expires_at") or result.get("expires") or "Active")))
+                self.root.after(0, self._show_gated_sections)
             else:
                 self.root.after(0, lambda: self.status.set("Activation failed"))
+                self.root.after(0, self._hide_gated_sections)
                 self.root.after(0, lambda: messagebox.showerror("License", result.get("error", "Activation was rejected.")))
         except Exception as exc:
             self.root.after(0, lambda: self.status.set("Server unavailable"))
+            self.root.after(0, self._hide_gated_sections)
             self.root.after(0, lambda: messagebox.showerror("Connection", f"Could not contact the license server.\n\n{exc}"))
 
     def request_link(self):
