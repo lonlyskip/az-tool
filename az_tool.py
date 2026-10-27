@@ -14,9 +14,9 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone
 
-APP_NAME = "az Tool"
+APP_NAME = "az tool"
 LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
-APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "az Tool")
+APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "az tool")
 STATE_FILE = os.path.join(APP_DIR, "state.json")
 # The requested monitor setup is 1920x1080. Region is bottom-centre, above inventory.
 REGION = {"left": 460, "top": 690, "width": 1000, "height": 220}
@@ -199,7 +199,9 @@ class AzToolApp:
 
         widget.bind("<Button-3>", show_menu)
         widget.bind("<Control-v>", paste_clipboard)
+        widget.bind("<Control-KeyPress-v>", paste_clipboard)
         widget.bind("<Control-V>", paste_clipboard)
+        widget.bind("<Control-KeyPress-V>", paste_clipboard)
         widget.bind("<Shift-Insert>", paste_clipboard)
         widget.bind("<Control-c>", copy_selection)
         widget.bind("<Control-x>", lambda event: copy_selection(cut=True))
