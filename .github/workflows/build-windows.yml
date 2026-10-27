@@ -8,6 +8,7 @@ on:
     paths:
       - "az_tool.py"
       - "requirements.txt"
+      - "make_icon.py"
       - ".github/workflows/build-windows.yml"
 
 permissions:
@@ -31,9 +32,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
 
+      - name: Generate feather icon
+        run: python make_icon.py
+
       - name: Build executable
         run: >-
           pyinstaller --noconfirm --clean --onefile --windowed
+          --icon "assets/az-tool-icon.ico"
+          --add-data "assets/az-tool-icon.ico;."
           --name "az Tool"
           --collect-all rapidocr_onnxruntime
           --collect-all onnxruntime
