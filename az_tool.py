@@ -56,9 +56,11 @@ def post(path, payload, timeout=10):
         raw = exc.read().decode("utf-8", errors="replace")
         try:
             data = json.loads(raw)
-            detail = data.get("error") or data.get("message") or f"HTTP {exc.code}"
+            detail = data.get("error") or data.get("message")
+            if not detail:
+                detail = f"HTTP {exc.code}: {raw[:500]}"
         except ValueError:
-            detail = f"HTTP {exc.code}: {raw[:240]}"
+            detail = f"HTTP {exc.code}: {raw[:500]}"
         raise RuntimeError(f"License server rejected the request: {detail}") from None
     except URLError as exc:
         raise RuntimeError(f"Cannot reach license server: {exc.reason}") from None
