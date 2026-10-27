@@ -283,7 +283,7 @@ class AzToolApp:
                 words = detections or []
                 recognized = " ".join(str(item[1]) for item in words if len(item) > 1)
                 normalized = re.sub(r"[^a-z0-9 ]", " ", recognized.lower())
-                normalized = re.sub(r"\\s+", " ", normalized).strip()
+                normalized = re.sub(r"\s+", " ", normalized).strip()
                 phrase_found = (
                     "ascended" in normalized and "brainrot" in normalized and "spawned" in normalized
                 )
@@ -308,7 +308,7 @@ class AzToolApp:
                         crop = image
                     crop_detections, _ = ocr(np.array(crop))
                     crop_text = " ".join(str(item[1]) for item in (crop_detections or []) if len(item) > 1)
-                    event_key = re.sub(r"\\s+", " ", crop_text.lower()).strip()
+                    event_key = re.sub(r"\s+", " ", crop_text.lower()).strip()
                     now = time.time()
                     if event_key and (event_key != self._last_event_key or now - self._last_event_at > EVENT_COOLDOWN_SECONDS):
                         # Encode the crop in memory only; never write a screenshot file to disk.
@@ -316,7 +316,7 @@ class AzToolApp:
                         crop.save(buffer, format="PNG")
                         image_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
                         event_id = uuid.uuid4().hex
-                        character_name = crop_text[:160] or "Ascended Brainrot"
+                        character_name = crop_text[:120] or "Ascended Brainrot"
                         result = post("/api/radar/event", {
                             "code": self.license_key.get().strip(),
                             "device_id": device_id(),
