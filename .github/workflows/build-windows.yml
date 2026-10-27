@@ -1,0 +1,49 @@
+name: Build az Tool for Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - az-tool-rebuild
+    paths:
+      - "az_tool.py"
+      - "requirements.txt"
+      - ".github/workflows/build-windows.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Build executable
+        run: >-
+          pyinstaller --noconfirm --clean --onefile --windowed
+          --name "az Tool"
+          --collect-all rapidocr_onnxruntime
+          --collect-all onnxruntime
+          --hidden-import win32timezone
+          az_tool.py
+
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: az-Tool-Windows
+          path: "dist/az Tool.exe"
+          if-no-files-found: error
+          retention-days: 14
