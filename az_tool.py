@@ -294,7 +294,7 @@ class AzToolApp:
         except Exception as exc:
             self.root.after(0, lambda: self.status.set("Server unavailable"))
             self.root.after(0, self._hide_gated_sections)
-            self.root.after(0, lambda: messagebox.showerror("Connection", f"Could not contact the license server.\n\n{exc}"))
+            self.root.after(0, lambda err=str(exc): messagebox.showerror("Connection", f"Could not contact the license server.\n\n{err}"))
 
     def request_link(self):
         key, discord_id = self.license_key.get().strip(), self.discord_id.get().strip()
@@ -327,7 +327,7 @@ class AzToolApp:
                 self.root.after(0, lambda: messagebox.showerror("Discord verification", result.get("error", "Request failed.")))
         except Exception as exc:
             self.root.after(0, lambda: self.link_status.set("Could not reach the verification service."))
-            self.root.after(0, lambda: messagebox.showerror("Connection", f"Verification request failed.\n\n{exc}"))
+            self.root.after(0, lambda err=str(exc): messagebox.showerror("Connection", f"Verification request failed.\n\n{err}"))
 
     def _poll_link_status(self):
         request_id, discord_id = self.state.get("link_request_id"), self.state.get("discord_id")
