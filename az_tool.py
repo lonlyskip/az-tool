@@ -42,7 +42,7 @@ def post(path, payload, timeout=10):
     req = Request(
         LICENSE_SERVER.rstrip("/") + path,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "az-tool-license-client/1.0"},
         method="POST",
     )
     try:
