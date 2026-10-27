@@ -41,11 +41,26 @@ def post(path, payload, timeout=10):
     req = Request(
         LICENSE_SERVER.rstrip("/") + path,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
         method="POST",
     )
-    with urlopen(req, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urlopen(req, timeout=timeout) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+            try:
+                return json.loads(raw)
+            except ValueError:
+                raise RuntimeError(f"License server returned invalid JSON (HTTP {response.status}).")
+    except HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            data = json.loads(raw)
+            detail = data.get("error") or data.get("message") or f"HTTP {exc.code}"
+        except ValueError:
+            detail = f"HTTP {exc.code}: {raw[:240]}"
+        raise RuntimeError(f"License server rejected the request: {detail}") from None
+    except URLError as exc:
+        raise RuntimeError(f"Cannot reach license server: {exc.reason}") from None
 
 
 def load_state():
