@@ -1,6 +1,9 @@
 import hashlib
 import json
 import os
+import io
+import base64
+import uuid
 import re
 import threading
 import time
@@ -14,7 +17,6 @@ APP_NAME = "az Tool"
 LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "az Tool")
 STATE_FILE = os.path.join(APP_DIR, "state.json")
-CAPTURE_DIR = os.path.join(APP_DIR, "captures")
 # The requested monitor setup is 1920x1080. Region is bottom-centre, above inventory.
 REGION = {"left": 460, "top": 690, "width": 1000, "height": 220}
 POLL_SECONDS = 0.8
@@ -136,7 +138,7 @@ class AzToolApp:
         tk.Label(radar_card, textvariable=self.radar_status, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
         self.label(radar_card, "Detects “Ascended Brainrot Spawned” and the red character name in the bottom-centre notification area.", MUTED, 9).pack(anchor="w", pady=(5, 0))
-        self.label(radar_card, "Only the notification crop is prepared. Discord delivery requires the matching server event endpoint to be deployed.", RED, 9).pack(anchor="w", pady=(5, 0))
+        self.label(radar_card, "Notification images are sent in memory to your linked Discord account; no image file is saved.", MUTED, 9).pack(anchor="w", pady=(5, 0))
 
         footer = tk.Frame(self.root, bg=BG)
         footer.pack(fill="x", padx=28, pady=(10, 18))
@@ -155,15 +157,15 @@ class AzToolApp:
 
     def _activate_worker(self, key):
         try:
-            result = post("/api/activate", {"key": key, "device_id": device_id()})
-            if result.get("ok"):
+            result = post("/api/activate", {"code": key, "device_id": device_id()})
+            if result.get("valid"):
                 self.state["license_key"] = key
                 save_state(self.state)
                 self.root.after(0, lambda: self.status.set("Activated • license accepted"))
                 self.root.after(0, lambda: self.expiry.set(str(result.get("expires_at") or result.get("expires") or "Active")))
             else:
                 self.root.after(0, lambda: self.status.set("Activation failed"))
-                self.root.after(0, lambda: messagebox.showerror("License", result.get("message", "Activation was rejected.")))
+                self.root.after(0, lambda: messagebox.showerror("License", result.get("error", "Activation was rejected.")))
         except Exception as exc:
             self.root.after(0, lambda: self.status.set("Server unavailable"))
             self.root.after(0, lambda: messagebox.showerror("Connection", f"Could not contact the license server.\n\n{exc}"))
@@ -181,17 +183,17 @@ class AzToolApp:
 
     def _link_worker(self, key, discord_id):
         try:
-            result = post("/api/link/request", {"key": key, "device_id": device_id(), "discord_id": discord_id})
-            if result.get("ok"):
+            result = post("/api/link/request", {"code": key, "device_id": device_id(), "discord_user_id": discord_id})
+            if result.get("request_id") or result.get("linked"):
                 self.state["discord_id"] = discord_id
-                self.state["link_request_id"] = result.get("request_id") or result.get("id")
+                self.state["link_request_id"] = result.get("request_id")
                 save_state(self.state)
                 self.root.after(0, lambda: self.link_status.set("Request sent. Waiting for bot approval…"))
                 self._polling = True
                 threading.Thread(target=self._poll_link_status, daemon=True).start()
             else:
                 self.root.after(0, lambda: self.link_status.set("Request was not accepted by the server."))
-                self.root.after(0, lambda: messagebox.showerror("Discord verification", result.get("message", "Request failed.")))
+                self.root.after(0, lambda: messagebox.showerror("Discord verification", result.get("error", "Request failed.")))
         except Exception as exc:
             self.root.after(0, lambda: self.link_status.set("Could not reach the verification service."))
             self.root.after(0, lambda: messagebox.showerror("Connection", f"Verification request failed.\n\n{exc}"))
@@ -202,9 +204,9 @@ class AzToolApp:
             return
         while self._polling:
             try:
-                result = post("/api/link/request-status", {"request_id": request_id, "discord_id": discord_id})
+                result = post("/api/link/request-status", {"code": self.state.get("license_key", ""), "device_id": device_id(), "request_id": request_id})
                 status = str(result.get("status", "")).lower()
-                if status in ("confirmed", "approved", "linked", "accepted"):
+                if status in ("confirmed", "approved", "linked", "accepted") and result.get("linked"):
                     self._link_verified = True
                     self.root.after(0, lambda: self.link_status.set("Discord verified."))
                     return
@@ -235,8 +237,9 @@ class AzToolApp:
         try:
             import mss, rapidocr_onnxruntime
             from PIL import Image
+            import numpy
         except ImportError:
-            messagebox.showerror("Missing components", "Install the required packages with:\npy -m pip install -r requirements.txt")
+            messagebox.showerror("Missing components", "This build is missing bundled radar components. Please reinstall the complete az Tool application build.")
             return
         self.radar_enabled = True
         self.radar_button.config(text="STOP RADAR", bg=RED, fg="white")
@@ -260,7 +263,6 @@ class AzToolApp:
         except ImportError:
             self.root.after(0, self.stop_radar)
             return
-        os.makedirs(CAPTURE_DIR, exist_ok=True)
         while self.radar_enabled:
             try:
                 hwnd = win32gui.GetForegroundWindow()
@@ -304,11 +306,26 @@ class AzToolApp:
                     event_key = re.sub(r"\\s+", " ", crop_text.lower()).strip()
                     now = time.time()
                     if event_key and (event_key != self._last_event_key or now - self._last_event_at > EVENT_COOLDOWN_SECONDS):
-                        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
-                        path = os.path.join(CAPTURE_DIR, f"spawn_{stamp}.png")
-                        crop.save(path)
-                        self._last_event_key, self._last_event_at = event_key, now
-                        self.root.after(0, lambda p=path: self.radar_status.set("ON • Spawn detected; notification crop saved locally. Discord delivery is awaiting server support."))
+                        # Encode the crop in memory only; never write a screenshot file to disk.
+                        buffer = io.BytesIO()
+                        crop.save(buffer, format="PNG")
+                        image_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+                        event_id = uuid.uuid4().hex
+                        character_name = crop_text[:160] or "Ascended Brainrot"
+                        result = post("/api/radar/event", {
+                            "code": self.license_key.get().strip(),
+                            "device_id": device_id(),
+                            "event_id": event_id,
+                            "character_name": character_name,
+                            "image_base64": image_b64
+                        }, timeout=15)
+                        if result.get("ok"):
+                            self._last_event_key, self._last_event_at = event_key, now
+                            self.root.after(0, lambda: self.radar_status.set("ON • Spawn detected and sent to your linked Discord account."))
+                        else:
+                            err = result.get("error", "Server rejected the event")
+                            self.root.after(0, lambda msg=err: self.radar_status.set(f"ON • Discord delivery failed: {msg[:90]}"))
+                        buffer.close()
                         time.sleep(EVENT_COOLDOWN_SECONDS)
                 else:
                     self.root.after(0, lambda: self.radar_status.set("ON • Watching Fortnite notification area…"))
