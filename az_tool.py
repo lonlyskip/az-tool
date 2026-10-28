@@ -336,8 +336,10 @@ class AzToolApp:
         for card in (self.afk_card, self.radar_card):
             if not card.winfo_manager():
                 card.pack(fill="x", padx=24, pady=8)
-        if self._link_verified:
+        if self._link_verified or self._discord_skipped:
             self.radar_button.config(state="normal", bg=GREEN)
+            if self._discord_skipped and not self._link_verified:
+                self.radar_status.set("Ready • Discord linking skipped; delivery may be unavailable.")
         else:
             self.radar_button.config(state="disabled", bg="#303747")
             self.radar_status.set("Discord verification is needed for alert delivery.")
@@ -468,7 +470,7 @@ class AzToolApp:
             self._afk_thread = threading.Thread(target=self._afk_input_loop, daemon=True)
             self._afk_thread.start()
             self.afk_button.config(text="STOP AFK  [F5]", bg=RED, fg="white")
-            self.afk_status.set("AFK ON • P every second; random W/A/S/D taps while Fortnite is focused.")
+            self.afk_status.set("AFK is ON.")
         else:
             self._afk_stop.set()
             try:
@@ -479,33 +481,55 @@ class AzToolApp:
             self.afk_status.set("AFK is OFF.")
 
     def _afk_input_loop(self):
-        # Keep P on a one-second cadence; vary movement taps. Never send Esc.
+        # Keep P on its original one-second cadence while holding each movement key
+        # for two seconds. Always release held keys when AFK is stopped or focus changes.
         key_codes = {"W": 0x57, "A": 0x41, "S": 0x53, "D": 0x44, "P": 0x50}
         user32 = ctypes.windll.user32
         next_p = time.monotonic()
+        last_focus_notice = 0.0
+
+        def tap_key(vk, duration=0.06):
+            user32.keybd_event(vk, 0, 0, 0)
+            try:
+                self._afk_stop.wait(duration)
+            finally:
+                user32.keybd_event(vk, 0, 0x0002, 0)
+
         while not self._afk_stop.is_set():
+            held_vk = None
             try:
                 import win32gui
                 hwnd = win32gui.GetForegroundWindow()
                 title = win32gui.GetWindowText(hwnd).lower()
                 if "fortnite" not in title:
+                    now = time.monotonic()
+                    if now - last_focus_notice > 2:
+                        self.root.after(0, lambda: self.afk_status.set("AFK ON • Waiting for Fortnite to be the active window."))
+                        last_focus_notice = now
                     self._afk_stop.wait(0.25)
                     next_p = time.monotonic()
                     continue
 
-                now = time.monotonic()
-                key = "P" if now >= next_p else random.choice(("W", "A", "S", "D"))
-                if key == "P":
-                    next_p = now + 1.0
-                vk = key_codes[key]
-                user32.keybd_event(vk, 0, 0, 0)
-                try:
-                    self._afk_stop.wait(random.uniform(0.045, 0.09))
-                finally:
-                    user32.keybd_event(vk, 0, 0x0002, 0)
-                gap = random.uniform(0.18, 0.45) if key != "P" else max(0.02, next_p - time.monotonic())
-                self._afk_stop.wait(gap)
+                self.root.after(0, lambda: self.afk_status.set("AFK is ON."))
+                key = random.choice(("W", "A", "S", "D"))
+                held_vk = key_codes[key]
+                user32.keybd_event(held_vk, 0, 0, 0)
+                hold_until = time.monotonic() + 2.0
+                while not self._afk_stop.is_set() and time.monotonic() < hold_until:
+                    now = time.monotonic()
+                    if now >= next_p:
+                        tap_key(key_codes["P"], 0.06)
+                        next_p = time.monotonic() + 1.0
+                    self._afk_stop.wait(min(0.04, max(0.0, hold_until - time.monotonic())))
+                user32.keybd_event(held_vk, 0, 0x0002, 0)
+                held_vk = None
+                self._afk_stop.wait(random.uniform(0.08, 0.2))
             except Exception as exc:
+                if held_vk is not None:
+                    try:
+                        user32.keybd_event(held_vk, 0, 0x0002, 0)
+                    except Exception:
+                        pass
                 self.root.after(0, lambda err=str(exc): self.afk_status.set("AFK input error: " + err[:100]))
                 self._afk_stop.wait(1.0)
 
@@ -577,7 +601,7 @@ class AzToolApp:
             if not self.license_card.winfo_manager():
                 self.license_card.pack(fill="x", padx=24, pady=8)
         # Radar cannot be started merely because an ID was typed; server approval is required.
-        if self.radar_enabled and (not self.license_key.get().strip() or not self._link_verified):
+        if self.radar_enabled and (not self.license_key.get().strip() or not (self._link_verified or self._discord_skipped)):
             self.root.after(0, self.stop_radar)
         self.root.after(3000, self._refresh_link_state)
 
@@ -588,8 +612,8 @@ class AzToolApp:
         if not self.license_key.get().strip():
             messagebox.showerror("Radar locked", "Activate a valid license first.")
             return
-        if not self._link_verified:
-            messagebox.showerror("Radar locked", "Verify and approve your Discord link first.")
+        if not (self._link_verified or self._discord_skipped):
+            messagebox.showerror("Radar locked", "Verify and approve your Discord link first, or choose Skip for now.")
             return
         try:
             import mss, rapidocr_onnxruntime
