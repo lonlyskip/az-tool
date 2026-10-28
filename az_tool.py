@@ -404,7 +404,21 @@ class AzToolApp:
                 self.root.after(0, self._handle_expired_subscription)
                 return
             result = post("/api/validate", {"code": key, "device_id": device_id()}, timeout=8)
-            valid = (result.get("valid") is True) if "valid" in result else (result.get("success") is True)
+            # Treat explicit server status as authoritative; some API responses may
+            # include success=true while separately reporting revoked/expired.
+            status = str(result.get("status", result.get("license_status", ""))).strip().lower()
+            explicitly_invalid = (
+                result.get("valid") is False
+                or result.get("active") is False
+                or result.get("revoked") is True
+                or result.get("expired") is True
+                or status in {"invalid", "inactive", "revoked", "expired", "cancelled", "canceled", "suspended", "disabled", "rejected"}
+            )
+            valid = not explicitly_invalid and (
+                result.get("valid") is True
+                if "valid" in result
+                else result.get("success") is True or result.get("active") is True
+            )
             expiry_value = result.get("expires_at") or result.get("expires") or self.state.get("expires_at")
             parsed_expiry = parse_expiry(expiry_value)
             if not valid or not parsed_expiry or parsed_expiry <= datetime.now(timezone.utc):
@@ -414,6 +428,11 @@ class AzToolApp:
             self.state["expires_at"] = parsed_expiry.isoformat()
             save_state(self.state)
             self.root.after(0, lambda expiry=parsed_expiry: self.expiry.set(expiry.strftime("%Y-%m-%d %H:%M UTC")))
+        except RuntimeError as exc:
+            # HTTP rejection from the license API means the license was rejected;
+            # transient connectivity failures should not revoke a valid subscription.
+            if "License server rejected the request:" in str(exc):
+                self.root.after(0, self._handle_expired_subscription)
         except Exception:
             # A network error alone does not prove the subscription expired.
             pass
@@ -456,7 +475,19 @@ class AzToolApp:
     def _check_subscription_worker(self, key):
         try:
             result = post("/api/validate", {"code": key, "device_id": device_id()})
-            valid = (result.get("valid") is True) if "valid" in result else (result.get("success") is True)
+            status = str(result.get("status", result.get("license_status", ""))).strip().lower()
+            explicitly_invalid = (
+                result.get("valid") is False
+                or result.get("active") is False
+                or result.get("revoked") is True
+                or result.get("expired") is True
+                or status in {"invalid", "inactive", "revoked", "expired", "cancelled", "canceled", "suspended", "disabled", "rejected"}
+            )
+            valid = not explicitly_invalid and (
+                result.get("valid") is True
+                if "valid" in result
+                else result.get("success") is True or result.get("active") is True
+            )
             expiry_value = result.get("expires_at") or result.get("expires") or self.state.get("expires_at")
             parsed_expiry = parse_expiry(expiry_value)
             valid = valid and parsed_expiry is not None and parsed_expiry > datetime.now(timezone.utc)
