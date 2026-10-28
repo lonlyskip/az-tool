@@ -551,6 +551,17 @@ class AzToolApp:
             time.sleep(4)
 
     def _refresh_link_state(self):
+        # Enforce the cached expiry locally even when the user chooses manual server checks.
+        cached_expiry = parse_expiry(self.state.get("expires_at"))
+        if self.state.get("license_key") and (not cached_expiry or cached_expiry <= datetime.now(timezone.utc)):
+            self.state.pop("license_key", None)
+            self.state.pop("expires_at", None)
+            save_state(self.state)
+            self.license_key.set("")
+            self.status.set("Subscription expired • activate a new key")
+            self._hide_gated_sections()
+            if not self.license_card.winfo_manager():
+                self.license_card.pack(fill="x", padx=24, pady=8)
         # Radar cannot be started merely because an ID was typed; server approval is required.
         if self.radar_enabled and (not self.license_key.get().strip() or not self._link_verified):
             self.root.after(0, self.stop_radar)
