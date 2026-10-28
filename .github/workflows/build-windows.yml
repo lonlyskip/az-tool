@@ -37,7 +37,7 @@ jobs:
 
       - name: Build executable
         run: >-
-          pyinstaller --noconfirm --clean --onefile --windowed
+          pyinstaller --noconfirm --clean --onedir --windowed
           --icon "assets/az-tool-icon.ico"
           --add-data "assets/az-tool-icon.ico;."
           --name "az tool"
@@ -49,7 +49,7 @@ jobs:
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
-          name: az-tool-windows
-          path: "dist/az tool.exe"
+          name: az-tool-windows-portable-folder
+          path: "dist/az tool/**"
           if-no-files-found: error
           retention-days: 14
