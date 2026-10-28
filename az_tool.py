@@ -22,7 +22,7 @@ LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "az tool")
 STATE_FILE = os.path.join(APP_DIR, "state.json")
 # The requested monitor setup is 1920x1080. Region is bottom-centre, above inventory.
-REGION = {"left": 460, "top": 690, "width": 1000, "height": 220}
+REGION = {"left": 0, "top": 0, "width": 1100, "height": 220}
 POLL_SECONDS = 0.8
 EVENT_COOLDOWN_SECONDS = 3.0
 
@@ -743,10 +743,13 @@ class AzToolApp:
                 recognized = " ".join(str(item[1]) for item in words if len(item) > 1)
                 normalized = re.sub(r"[^a-z0-9 ]", " ", recognized.lower())
                 normalized = re.sub(r"\s+", " ", normalized).strip()
-                # Treat any readable OCR text in the configured radar region as a spawn
-                # notification, regardless of its exact wording (e.g. "Spawned", character
-                # names, or future notification text). Keep the capture limited to REGION.
-                phrase_found = bool(normalized)
+                # Detect the white notification headline, not the creature name/color.
+                # The creature name can be red, blue, or another color and varies by spawn.
+                # Require the stable headline words so ordinary HUD text does not trigger.
+                has_brainrot = "brainrot" in normalized or "brain rot" in normalized
+                has_spawned = "spawned" in normalized or "spawn" in normalized
+                has_type = "ascended" in normalized or "forbidden" in normalized
+                phrase_found = has_brainrot and has_spawned and has_type
                 if phrase_found:
                     text_boxes = []
                     for item in words:
