@@ -22,9 +22,9 @@ LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "az tool")
 STATE_FILE = os.path.join(APP_DIR, "state.json")
 # Spawn headline is in the lower-middle area; calculate relative to the primary display.
-REGION_WIDTH = 1000
-REGION_HEIGHT = 210
-REGION_TOP_RATIO = 0.75
+REGION_WIDTH = 1400
+REGION_HEIGHT = 360
+REGION_TOP_RATIO = 0.58
 POLL_SECONDS = 0.8
 EVENT_COOLDOWN_SECONDS = 3.0
 
@@ -313,7 +313,7 @@ class AzToolApp:
         self.radar_button.pack(fill="x")
         tk.Label(radar_card, textvariable=self.radar_status, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
-        self.label(radar_card, "Detects Ascended Brainrot Spawned and Forbidden Brainrot Spawned.", MUTED, 9).pack(anchor="w", pady=(5, 0))
+        self.label(radar_card, "Detects any notification containing Spawned and sends it to Discord.", MUTED, 9).pack(anchor="w", pady=(5, 0))
 
 
         self.discord_card.pack_forget()
@@ -751,14 +751,30 @@ class AzToolApp:
                     }
                     shot = sct.grab(region)
                     image = Image.frombytes("RGB", shot.size, shot.rgb)
+                # Read the notification area. If small text is missed, retry enlarged
+                # and high-contrast while keeping all processing in memory.
                 detections, _elapsed = ocr(np.array(image))
                 words = detections or []
                 recognized = " ".join(str(item[1]) for item in words if len(item) > 1)
                 normalized = re.sub(r"[^a-z0-9 ]", " ", recognized.lower())
                 normalized = re.sub(r"\s+", " ", normalized).strip()
-                # Any spawn notification counts, regardless of type (Forbidden,
-                # Ascended, or other spawn variants) and regardless of creature name/color.
-                # Match the stable "Spawned" word in the lower-center notification region.
+
+                if "spawned" not in normalized:
+                    from PIL import ImageEnhance, ImageOps
+                    enlarged = image.resize((image.width * 2, image.height * 2), Image.Resampling.LANCZOS)
+                    enhanced = ImageEnhance.Contrast(ImageOps.grayscale(enlarged)).enhance(2.0)
+                    retry_detections, _retry_elapsed = ocr(np.array(enhanced))
+                    retry_words = retry_detections or []
+                    retry_text = " ".join(str(item[1]) for item in retry_words if len(item) > 1)
+                    retry_normalized = re.sub(r"[^a-z0-9 ]", " ", retry_text.lower())
+                    retry_normalized = re.sub(r"\s+", " ", retry_normalized).strip()
+                    if "spawned" in retry_normalized:
+                        words = retry_words
+                        recognized = retry_text
+                        normalized = retry_normalized
+
+                # Any notification containing the word Spawned is a match,
+                # regardless of rarity/type or creature name.
                 phrase_found = "spawned" in normalized
                 if phrase_found:
                     text_boxes = []
