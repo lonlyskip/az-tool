@@ -105,6 +105,18 @@ def save_state(state):
         json.dump(state, file)
 
 
+def parse_expiry(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
 class AzToolApp:
     def __init__(self, root):
         self.root = root
@@ -143,6 +155,19 @@ class AzToolApp:
         self._hotkey_ready = threading.Event()
         self._closing = False
         self._build()
+        cached_expiry = parse_expiry(self.state.get("expires_at"))
+        cached_key = str(self.state.get("license_key", "")).strip()
+        if cached_key and cached_expiry and cached_expiry > datetime.now(timezone.utc):
+            self.status.set("Active • manual check available")
+            self.expiry.set(cached_expiry.strftime("%Y-%m-%d %H:%M UTC"))
+            self.license_card.pack_forget()
+            self._show_gated_sections()
+        elif cached_key:
+            self.state.pop("license_key", None)
+            self.state.pop("expires_at", None)
+            save_state(self.state)
+            self.license_key.set("")
+            self.status.set("Subscription expired or needs activation")
         if os.name == "nt":
             self._hotkey_thread = threading.Thread(target=self._global_f5_listener, daemon=True)
             self._hotkey_thread.start()
@@ -234,6 +259,7 @@ class AzToolApp:
         header.pack(fill="x", padx=28, pady=(22, 8))
         self.label(header, "az Tool", size=25, bold=True).pack(anchor="w")
         self.label(header, "LICENSED DESKTOP CLIENT", MUTED, 9, True).pack(anchor="w", pady=(2, 0))
+        self.button(header, "CHECK SUBSCRIPTION", self.check_subscription, color="#29314a").pack(anchor="e", pady=(0, 4))
 
         license_card = self.card(self.root, "License", "Activate your key on this device.")
         self.license_card = license_card
@@ -322,14 +348,24 @@ class AzToolApp:
         try:
             result = post("/api/activate", {"code": key, "device_id": device_id()})
             if result.get("valid") is True or result.get("success") is True or result.get("activated") is True:
+                expiry_value = result.get("expires_at") or result.get("expires")
+                parsed_expiry = parse_expiry(expiry_value)
+                if not parsed_expiry or parsed_expiry <= datetime.now(timezone.utc):
+                    raise RuntimeError("License server did not return a future expiry time.")
                 self.state["license_key"] = key
+                self.state["expires_at"] = parsed_expiry.isoformat()
                 save_state(self.state)
                 self.root.after(0, lambda: self.status.set("Activated • license accepted"))
                 self.root.after(0, self.license_card.pack_forget)
-                self.root.after(0, lambda: self.expiry.set(str(result.get("expires_at") or result.get("expires") or "Active")))
+                self.root.after(0, lambda: self.expiry.set(parsed_expiry.strftime("%Y-%m-%d %H:%M UTC")))
                 self.root.after(0, self._show_gated_sections)
             else:
+                self.state.pop("license_key", None)
+                self.state.pop("expires_at", None)
+                save_state(self.state)
+                self.root.after(0, lambda: self.license_key.set(""))
                 self.root.after(0, lambda: self.status.set("Activation failed"))
+                self.root.after(0, self.license_card.pack)
                 self.root.after(0, self._hide_gated_sections)
                 self.root.after(0, lambda: messagebox.showerror("فشل التفعيل", arabic_error(result.get("error", "Activation was rejected."))))
         except Exception as exc:
@@ -337,6 +373,42 @@ class AzToolApp:
             self.root.after(0, self._hide_gated_sections)
             self.root.after(0, lambda err=str(exc): messagebox.showerror("Connection", f"Could not contact the license server.\n\n{err}"))
 
+    def check_subscription(self):
+        key = self.license_key.get().strip() or str(self.state.get("license_key", "")).strip()
+        if not key:
+            self.license_card.pack(fill="x", padx=24, pady=8)
+            self.status.set("Enter a license key, then activate.")
+            return
+        self.status.set("Checking subscription…")
+        threading.Thread(target=self._check_subscription_worker, args=(key,), daemon=True).start()
+
+    def _check_subscription_worker(self, key):
+        try:
+            result = post("/api/validate", {"code": key, "device_id": device_id()})
+            valid = result.get("valid") is True or result.get("success") is True
+            expiry_value = result.get("expires_at") or result.get("expires") or self.state.get("expires_at")
+            parsed_expiry = parse_expiry(expiry_value)
+            valid = valid and parsed_expiry is not None and parsed_expiry > datetime.now(timezone.utc)
+            if valid:
+                self.state["license_key"] = key
+                self.state["expires_at"] = parsed_expiry.isoformat()
+                save_state(self.state)
+                self.root.after(0, lambda: self.status.set("Subscription verified"))
+                self.root.after(0, lambda: self.expiry.set(parsed_expiry.strftime("%Y-%m-%d %H:%M UTC")))
+                self.root.after(0, self.license_card.pack_forget)
+                self.root.after(0, self._show_gated_sections)
+            else:
+                self.state.pop("license_key", None)
+                self.state.pop("expires_at", None)
+                save_state(self.state)
+                self.root.after(0, lambda: self.license_key.set(""))
+                self.root.after(0, lambda: self.status.set("Subscription expired or revoked"))
+                self.root.after(0, self._hide_gated_sections)
+                self.root.after(0, lambda: self.license_card.pack(fill="x", padx=24, pady=8))
+                self.root.after(0, lambda: messagebox.showerror("الاشتراك", "الاشتراك منتهي أو ملغي. أدخل كودًا صالحًا للتفعيل."))
+        except Exception:
+            self.root.after(0, lambda: self.status.set("Could not verify subscription"))
+            self.root.after(0, lambda: messagebox.showerror("الاشتراك", "تعذر التحقق الآن. لم يتم اعتبار الاشتراك صالحًا بناءً على هذا الفحص."))
     def skip_discord(self):
         self._discord_skipped = True
         self.state["discord_skipped"] = True
