@@ -19,13 +19,13 @@ A GitHub Actions workflow builds the app when `az_tool.py`, `requirements.txt`, 
 
 1. Open the repository on GitHub and select **Actions**.
 2. Open **Build az Tool for Windows** and select the latest successful run.
-3. Under **Artifacts**, download `az-Tool-Windows` and extract `az Tool.exe`.
+3. Under **Artifacts**, download `az-tool-windows-portable-folder` and extract the folder. Run `az tool.exe` from inside that folder; keep the accompanying files in place.
 
 You can also build locally:
 
 ```cmd
 py -m pip install pyinstaller
-pyinstaller --noconfirm --clean --onefile --windowed --name "az Tool" --collect-all rapidocr_onnxruntime --collect-all onnxruntime --hidden-import win32timezone az_tool.py
+pyinstaller --noconfirm --clean --onedir --windowed --name "az Tool" --collect-all rapidocr_onnxruntime --collect-all onnxruntime --hidden-import win32timezone az_tool.py
 ```
 
 The executable is written to `dist\az Tool.exe`.
