@@ -769,7 +769,9 @@ class AzToolApp:
                     retry_normalized = re.sub(r"[^a-z0-9 ]", " ", retry_text.lower())
                     retry_normalized = re.sub(r"\s+", " ", retry_normalized).strip()
                     if "spawned" in retry_normalized:
-                        words = retry_words
+                        # Retry boxes are scaled 2x, so use the full original ROI
+                        # for the event image rather than mixing coordinate systems.
+                        words = []
                         recognized = retry_text
                         normalized = retry_normalized
 
