@@ -274,24 +274,10 @@ class AzToolApp:
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
         self.label(radar_card, "Detects Ascended Brainrot Spawned and Forbidden Brainrot Spawned.", MUTED, 9).pack(anchor="w", pady=(5, 0))
 
-        self.boost_card = self.card(self.gated_frame, "Optional boosts", "Optional system adjustments")
-        self.fps_var = tk.BooleanVar(value=False)
-        self.ping_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(self.boost_card, text="FPS boost", variable=self.fps_var, command=self.toggle_fps_boost,
-                       bg=PANEL, fg=TEXT, selectcolor=PANEL_2, activebackground=PANEL,
-                       activeforeground=TEXT, font=("Segoe UI", 10)).pack(anchor="w", pady=3)
-        tk.Checkbutton(self.boost_card, text="Ping boost", variable=self.ping_var, command=self.toggle_ping_boost,
-                       bg=PANEL, fg=TEXT, selectcolor=PANEL_2, activebackground=PANEL,
-                       activeforeground=TEXT, font=("Segoe UI", 10)).pack(anchor="w", pady=3)
-        self.label(self.boost_card, "ملاحظة: لو إعداداتك تلقائي على أعلى تركيز للعبة مابيفيدك تعزيز الفريمات.", MUTED, 9).pack(anchor="w", pady=(6, 0))
-        self.boost_status = tk.StringVar(value="Boosts are OFF.")
-        tk.Label(self.boost_card, textvariable=self.boost_status, bg=PANEL, fg=MUTED,
-                 font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(6, 0))
 
         self.discord_card.pack_forget()
         self.afk_card.pack_forget()
         self.radar_card.pack_forget()
-        self.boost_card.pack_forget()
         # F5 is registered globally below so it works while Fortnite is focused.
 
         footer = tk.Frame(self.root, bg=BG)
@@ -307,7 +293,7 @@ class AzToolApp:
                 self.discord_card.pack(fill="x", padx=24, pady=8)
         else:
             self.discord_card.pack_forget()
-        for card in (self.afk_card, self.radar_card, self.boost_card):
+        for card in (self.afk_card, self.radar_card):
             if not card.winfo_manager():
                 card.pack(fill="x", padx=24, pady=8)
         if self._link_verified:
@@ -437,60 +423,6 @@ class AzToolApp:
             except Exception as exc:
                 self.root.after(0, lambda err=str(exc): self.afk_status.set("AFK input error: " + err[:100]))
                 self._afk_stop.wait(1.0)
-
-    def toggle_fps_boost(self):
-        if self.fps_var.get():
-            try:
-                import win32gui, win32process, win32api, win32con
-                hwnd = win32gui.FindWindow(None, "Fortnite")
-                if not hwnd:
-                    hwnd = win32gui.GetForegroundWindow()
-                    if "fortnite" not in win32gui.GetWindowText(hwnd).lower():
-                        raise RuntimeError("Open Fortnite first.")
-                _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                handle = win32api.OpenProcess(win32con.PROCESS_SET_INFORMATION, False, pid)
-                try:
-                    win32process.SetPriorityClass(handle, win32process.HIGH_PRIORITY_CLASS)
-                finally:
-                    win32api.CloseHandle(handle)
-                self.boost_status.set("FPS boost ON • Fortnite priority set to High; performance may vary.")
-            except Exception as exc:
-                self.fps_var.set(False)
-                self.boost_status.set("FPS boost couldn't be applied: " + str(exc)[:90])
-        else:
-            try:
-                import win32gui, win32process, win32api, win32con
-                hwnd = win32gui.FindWindow(None, "Fortnite") or win32gui.GetForegroundWindow()
-                _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                handle = win32api.OpenProcess(win32con.PROCESS_SET_INFORMATION, False, pid)
-                try:
-                    win32process.SetPriorityClass(handle, win32process.NORMAL_PRIORITY_CLASS)
-                finally:
-                    win32api.CloseHandle(handle)
-            except Exception:
-                pass
-            self.boost_status.set("FPS boost OFF • Normal priority requested.")
-
-    def toggle_ping_boost(self):
-        if not self.ping_var.get():
-            self.boost_status.set("Ping boost OFF.")
-            return
-        # Safely clear cached DNS records; this does not guarantee lower in-game latency.
-        try:
-            import subprocess
-            result = subprocess.run(
-                ["ipconfig", "/flushdns"], capture_output=True, text=True,
-                timeout=8, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            )
-            if result.returncode == 0:
-                self.boost_status.set("DNS cache cleared. In-game ping may not change.")
-                messagebox.showinfo("Ping boost", "تم تحديث ذاكرة DNS بنجاح. هذا قد يساعد مشاكل حل أسماء النطاقات، لكنه لا يضمن خفض بنق سيرفر Fortnite.")
-            else:
-                self.boost_status.set("DNS refresh failed; try running as administrator.")
-                self.ping_var.set(False)
-        except Exception as exc:
-            self.ping_var.set(False)
-            self.boost_status.set("Ping option failed: " + str(exc)[:90])
 
     def request_link(self):
         key, discord_id = self.license_key.get().strip(), self.discord_id.get().strip()
