@@ -147,7 +147,7 @@ class AzToolApp:
         except (tk.TclError, OSError):
             pass
         self.state = load_state()
-        self.license_key = tk.StringVar(value=self.state.get("license_key", ""))
+        self.license_key = tk.StringVar(value="")
         self.discord_id = tk.StringVar(value=self.state.get("discord_id", ""))
         self.status = tk.StringVar(value="Not activated")
         self.link_status = tk.StringVar(value="Discord account not linked")
@@ -162,7 +162,8 @@ class AzToolApp:
         self._license_check_in_progress = False
         self._subscription_expired = False
         self._link_verified = False
-        self._discord_skipped = bool(self.state.get('discord_skipped', False))
+        self._discord_skipped = False
+        self.state.pop('discord_skipped', None)
         self.afk_enabled = False
         self._afk_stop = threading.Event()
         self._afk_thread = None
@@ -171,19 +172,11 @@ class AzToolApp:
         self._hotkey_ready = threading.Event()
         self._closing = False
         self._build()
-        cached_expiry = parse_expiry(self.state.get("expires_at"))
-        cached_key = str(self.state.get("license_key", "")).strip()
-        if cached_key and cached_expiry and cached_expiry > datetime.now(timezone.utc):
-            self.status.set("Active • manual check available")
-            self.expiry.set(cached_expiry.strftime("%Y-%m-%d %H:%M UTC"))
-            self.license_card.pack_forget()
-            self._show_gated_sections()
-        elif cached_key:
-            self.state.pop("license_key", None)
-            self.state.pop("expires_at", None)
-            save_state(self.state)
-            self.license_key.set("")
-            self.status.set("Subscription expired or needs activation")
+        # Always start at the activation screen; a cached key never bypasses validation.
+        self.state.pop("discord_skipped", None)
+        save_state(self.state)
+        self.license_card.pack(fill="x", padx=24, pady=8)
+        self.status.set("Enter your license key to activate")
         if os.name == "nt":
             self._hotkey_thread = threading.Thread(target=self._global_f5_listener, daemon=True)
             self._hotkey_thread.start()
@@ -398,7 +391,7 @@ class AzToolApp:
         """Check the subscription every second without overlapping requests."""
         if self._closing or self._subscription_expired:
             return
-        key = str(self.state.get("license_key", "")).strip() or self.license_key.get().strip()
+        key = self.license_key.get().strip()
         if key and not self._license_check_in_progress:
             self._license_check_in_progress = True
             threading.Thread(target=self._automatic_subscription_check, args=(key,), daemon=True).start()
@@ -576,7 +569,7 @@ class AzToolApp:
                 key = random.choice(("W", "A", "S", "D"))
                 held_vk = key_codes[key]
                 user32.keybd_event(held_vk, 0, 0, 0)
-                hold_until = time.monotonic() + 2.0
+                hold_until = time.monotonic() + 1.0
                 while not self._afk_stop.is_set() and time.monotonic() < hold_until:
                     now = time.monotonic()
                     if now >= next_p:
