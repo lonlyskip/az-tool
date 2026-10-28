@@ -404,7 +404,7 @@ class AzToolApp:
                 self.root.after(0, self._handle_expired_subscription)
                 return
             result = post("/api/validate", {"code": key, "device_id": device_id()}, timeout=8)
-            valid = result.get("valid") is True or result.get("success") is True
+            valid = (result.get("valid") is True) if "valid" in result else (result.get("success") is True)
             expiry_value = result.get("expires_at") or result.get("expires") or self.state.get("expires_at")
             parsed_expiry = parse_expiry(expiry_value)
             if not valid or not parsed_expiry or parsed_expiry <= datetime.now(timezone.utc):
@@ -456,7 +456,7 @@ class AzToolApp:
     def _check_subscription_worker(self, key):
         try:
             result = post("/api/validate", {"code": key, "device_id": device_id()})
-            valid = result.get("valid") is True or result.get("success") is True
+            valid = (result.get("valid") is True) if "valid" in result else (result.get("success") is True)
             expiry_value = result.get("expires_at") or result.get("expires") or self.state.get("expires_at")
             parsed_expiry = parse_expiry(expiry_value)
             valid = valid and parsed_expiry is not None and parsed_expiry > datetime.now(timezone.utc)
