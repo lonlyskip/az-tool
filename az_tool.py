@@ -159,6 +159,8 @@ class AzToolApp:
         self._last_event_key = None
         self._last_event_at = 0.0
         self._last_license_check = 0.0
+        self._license_check_in_progress = False
+        self._subscription_expired = False
         self._link_verified = False
         self._discord_skipped = bool(self.state.get('discord_skipped', False))
         self.afk_enabled = False
@@ -330,6 +332,7 @@ class AzToolApp:
         if self.license_key.get().strip():
             self.status.set("Saved key loaded — activate to validate")
         self.root.after(1000, self._refresh_link_state)
+        self.root.after(1000, self._schedule_subscription_check)
 
     def _show_gated_sections(self):
         if not self._link_verified and not self._discord_skipped:
@@ -390,6 +393,63 @@ class AzToolApp:
             self.root.after(0, lambda: self.status.set("Server unavailable"))
             self.root.after(0, self._hide_gated_sections)
             self.root.after(0, lambda err=str(exc): messagebox.showerror("Connection", f"Could not contact the license server.\n\n{err}"))
+
+    def _schedule_subscription_check(self):
+        """Check the subscription every second without overlapping requests."""
+        if self._closing or self._subscription_expired:
+            return
+        key = str(self.state.get("license_key", "")).strip() or self.license_key.get().strip()
+        if key and not self._license_check_in_progress:
+            self._license_check_in_progress = True
+            threading.Thread(target=self._automatic_subscription_check, args=(key,), daemon=True).start()
+        self.root.after(1000, self._schedule_subscription_check)
+
+    def _automatic_subscription_check(self, key):
+        try:
+            local_expiry = parse_expiry(self.state.get("expires_at"))
+            if local_expiry and local_expiry <= datetime.now(timezone.utc):
+                self.root.after(0, self._handle_expired_subscription)
+                return
+            result = post("/api/validate", {"code": key, "device_id": device_id()}, timeout=8)
+            valid = result.get("valid") is True or result.get("success") is True
+            expiry_value = result.get("expires_at") or result.get("expires") or self.state.get("expires_at")
+            parsed_expiry = parse_expiry(expiry_value)
+            if not valid or not parsed_expiry or parsed_expiry <= datetime.now(timezone.utc):
+                self.root.after(0, self._handle_expired_subscription)
+                return
+            self.state["license_key"] = key
+            self.state["expires_at"] = parsed_expiry.isoformat()
+            save_state(self.state)
+            self.root.after(0, lambda expiry=parsed_expiry: self.expiry.set(expiry.strftime("%Y-%m-%d %H:%M UTC")))
+        except Exception:
+            # A network error alone does not prove the subscription expired.
+            pass
+        finally:
+            self._license_check_in_progress = False
+
+    def _handle_expired_subscription(self):
+        if self._subscription_expired or self._closing:
+            return
+        self._subscription_expired = True
+        self._polling = False
+        self._afk_stop.set()
+        self.afk_enabled = False
+        self.radar_enabled = False
+        self._link_verified = False
+        self.state.pop("license_key", None)
+        self.state.pop("expires_at", None)
+        self.state.pop("discord_skipped", None)
+        save_state(self.state)
+        self.license_key.set("")
+        self.status.set("Subscription expired")
+        self.expiry.set("Expired")
+        try:
+            if os.name == "nt":
+                ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+        except Exception:
+            pass
+        messagebox.showerror("انتهى الاشتراك", "انتهى اشتراكك. اضغط موافق للعودة إلى شاشة إدخال كود التفعيل.")
+        self.close()
 
     def check_subscription(self):
         key = self.license_key.get().strip() or str(self.state.get("license_key", "")).strip()
@@ -591,17 +651,10 @@ class AzToolApp:
             time.sleep(4)
 
     def _refresh_link_state(self):
-        # Enforce the cached expiry locally even when the user chooses manual server checks.
+        # Enforce expiry locally; the automatic checker also validates with the server.
         cached_expiry = parse_expiry(self.state.get("expires_at"))
         if self.state.get("license_key") and (not cached_expiry or cached_expiry <= datetime.now(timezone.utc)):
-            self.state.pop("license_key", None)
-            self.state.pop("expires_at", None)
-            save_state(self.state)
-            self.license_key.set("")
-            self.status.set("Subscription expired • activate a new key")
-            self._hide_gated_sections()
-            if not self.license_card.winfo_manager():
-                self.license_card.pack(fill="x", padx=24, pady=8)
+            self.root.after(0, self._handle_expired_subscription)
         # Radar cannot be started merely because an ID was typed; server approval is required.
         if self.radar_enabled and (not self.license_key.get().strip() or not self._link_verified):
             self.root.after(0, self.stop_radar)
