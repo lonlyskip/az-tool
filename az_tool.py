@@ -21,8 +21,10 @@ APP_NAME = "az tool"
 LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "az tool")
 STATE_FILE = os.path.join(APP_DIR, "state.json")
-# The requested monitor setup is 1920x1080. Region is bottom-centre, above inventory.
-REGION = {"left": 0, "top": 0, "width": 1100, "height": 220}
+# Spawn headline is in the lower-middle area; calculate relative to the primary display.
+REGION_WIDTH = 1100
+REGION_HEIGHT = 260
+REGION_TOP_RATIO = 0.62
 POLL_SECONDS = 0.8
 EVENT_COOLDOWN_SECONDS = 3.0
 
@@ -736,7 +738,18 @@ class AzToolApp:
                     time.sleep(POLL_SECONDS)
                     continue
                 with mss.mss() as sct:
-                    shot = sct.grab(REGION)
+                    monitor = sct.monitors[1]
+                    screen_width = int(monitor["width"])
+                    screen_height = int(monitor["height"])
+                    region_width = min(REGION_WIDTH, screen_width)
+                    region_height = min(REGION_HEIGHT, screen_height)
+                    region = {
+                        "left": int(monitor["left"] + max(0, (screen_width - region_width) // 2)),
+                        "top": int(monitor["top"] + min(max(0, screen_height - region_height), int(screen_height * REGION_TOP_RATIO))),
+                        "width": region_width,
+                        "height": region_height,
+                    }
+                    shot = sct.grab(region)
                     image = Image.frombytes("RGB", shot.size, shot.rgb)
                 detections, _elapsed = ocr(np.array(image))
                 words = detections or []
