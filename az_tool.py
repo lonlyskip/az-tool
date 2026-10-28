@@ -336,10 +336,8 @@ class AzToolApp:
         for card in (self.afk_card, self.radar_card):
             if not card.winfo_manager():
                 card.pack(fill="x", padx=24, pady=8)
-        if self._link_verified or self._discord_skipped:
+        if self._link_verified:
             self.radar_button.config(state="normal", bg=GREEN)
-            if self._discord_skipped and not self._link_verified:
-                self.radar_status.set("Ready • Discord linking skipped; delivery may be unavailable.")
         else:
             self.radar_button.config(state="disabled", bg="#303747")
             self.radar_status.set("Discord verification is needed for alert delivery.")
@@ -601,7 +599,7 @@ class AzToolApp:
             if not self.license_card.winfo_manager():
                 self.license_card.pack(fill="x", padx=24, pady=8)
         # Radar cannot be started merely because an ID was typed; server approval is required.
-        if self.radar_enabled and (not self.license_key.get().strip() or not (self._link_verified or self._discord_skipped)):
+        if self.radar_enabled and (not self.license_key.get().strip() or not self._link_verified):
             self.root.after(0, self.stop_radar)
         self.root.after(3000, self._refresh_link_state)
 
@@ -612,8 +610,8 @@ class AzToolApp:
         if not self.license_key.get().strip():
             messagebox.showerror("Radar locked", "Activate a valid license first.")
             return
-        if not (self._link_verified or self._discord_skipped):
-            messagebox.showerror("Radar locked", "Verify and approve your Discord link first, or choose Skip for now.")
+        if not self._link_verified:
+            messagebox.showerror("Radar locked", "Verify and approve your Discord link first.")
             return
         try:
             import mss, rapidocr_onnxruntime
