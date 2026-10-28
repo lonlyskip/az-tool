@@ -1,4 +1,4 @@
-name: Build az tool for Windows (standalone)
+name: Build az tool for Windows
 
 on:
   workflow_dispatch:
@@ -35,9 +35,9 @@ jobs:
       - name: Generate feather icon
         run: python make_icon.py
 
-      - name: Compile standalone application with Nuitka
+      - name: Compile single-file Windows application
         run: >-
-          python -m nuitka --mode=standalone --windows-console-mode=disable
+          python -m nuitka --mode=onefile --windows-console-mode=disable
           --assume-yes-for-downloads
           --enable-plugin=tk-inter
           --include-package=rapidocr_onnxruntime
@@ -46,10 +46,10 @@ jobs:
           --output-filename="az tool.exe"
           az_tool.py
 
-      - name: Upload standalone Windows application
+      - name: Upload the EXE only
         uses: actions/upload-artifact@v4
         with:
-          name: az-tool-windows-standalone
-          path: "az_tool.dist/"
+          name: az-tool-windows
+          path: "az tool.exe"
           if-no-files-found: error
           retention-days: 14
