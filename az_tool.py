@@ -13,6 +13,7 @@ import tkinter as tk
 import ctypes
 import ctypes.wintypes
 from tkinter import messagebox
+from PIL import Image, ImageTk, ImageEnhance
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone
@@ -26,14 +27,14 @@ REGION = {"left": 460, "top": 690, "width": 1000, "height": 220}
 POLL_SECONDS = 0.8
 EVENT_COOLDOWN_SECONDS = 3.0
 
-BG = "#0b0d12"
-PANEL = "#131722"
-PANEL_2 = "#1a2030"
-TEXT = "#edf2ff"
-MUTED = "#8d98b3"
-ACCENT = "#8b7cff"
-GREEN = "#50e3a4"
-RED = "#ff657a"
+BG = "#050507"
+PANEL = "#101014"
+PANEL_2 = "#17171d"
+TEXT = "#f5f5f7"
+MUTED = "#aaaab5"
+ACCENT = "#ff2638"
+GREEN = "#ff3448"
+RED = "#ff2638"
 
 
 def device_id():
@@ -138,6 +139,13 @@ class AzToolApp:
         self.root.geometry("620x720")
         self.root.minsize(580, 680)
         self.root.configure(bg=BG)
+        self.root.update_idletasks()
+        self._set_dark_titlebar()
+        self._background_image = None
+        self._background_label = tk.Label(self.root, bg=BG, bd=0)
+        self._background_label.place(x=0, y=0, relwidth=1, relheight=1)
+        self._load_background_image()
+        self.root.bind("<Configure>", self._resize_background)
         icon_path = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "assets", "az-tool-icon.ico")
         # PyInstaller bundles the same feather icon for the executable and the app window/taskbar.
         if not os.path.exists(icon_path):
@@ -181,13 +189,54 @@ class AzToolApp:
             self._hotkey_thread = threading.Thread(target=self._global_f5_listener, daemon=True)
             self._hotkey_thread.start()
 
+    def _set_dark_titlebar(self):
+        # Windows DWM dark title bar; keep the native title strip black.
+        if os.name != "nt":
+            return
+        try:
+            self.root.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            value = ctypes.c_int(1)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(value), ctypes.sizeof(value))
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 19, ctypes.byref(value), ctypes.sizeof(value))
+        except Exception:
+            pass
+
+    def _load_background_image(self):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "eye-bg.jpg")
+        if not os.path.exists(path):
+            path = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "assets", "eye-bg.jpg")
+        try:
+            self._background_original = Image.open(path).convert("RGB")
+            # Darken the supplied artwork so foreground controls remain readable.
+            self._background_original = ImageEnhance.Brightness(self._background_original).enhance(0.42)
+            self._resize_background()
+        except (OSError, ValueError):
+            self._background_original = None
+
+    def _resize_background(self, event=None):
+        if getattr(self, "_background_original", None) is None:
+            return
+        try:
+            width, height = max(1, self.root.winfo_width()), max(1, self.root.winfo_height())
+            image = self._background_original.copy()
+            ratio = max(width / image.width, height / image.height)
+            image = image.resize((int(image.width * ratio), int(image.height * ratio)), Image.Resampling.LANCZOS)
+            left, top = (image.width - width) // 2, (image.height - height) // 2
+            image = image.crop((left, top, left + width, top + height))
+            self._background_image = ImageTk.PhotoImage(image)
+            self._background_label.configure(image=self._background_image)
+            self._background_label.lower()
+        except Exception:
+            pass
+
     def label(self, parent, text, color=TEXT, size=10, bold=False):
         return tk.Label(parent, text=text, bg=parent["bg"], fg=color,
                         font=("Segoe UI", size, "bold" if bold else "normal"))
 
     def card(self, parent, title, subtitle=None):
-        frame = tk.Frame(parent, bg=PANEL, padx=18, pady=16,
-                         highlightthickness=1, highlightbackground="#242b3b")
+        frame = tk.Frame(parent, bg="#111116", padx=18, pady=16,
+                         highlightthickness=1, highlightbackground="#4a1b22")
         frame.pack(fill="x", padx=24, pady=8)
         self.label(frame, title, size=11, bold=True).pack(anchor="w")
         if subtitle:
@@ -259,8 +308,9 @@ class AzToolApp:
         return widget
 
     def button(self, parent, text, command, color=ACCENT, fg="white"):
-        return tk.Button(parent, text=text, command=command, bg=color, fg=fg,
-                         activebackground=color, activeforeground=fg, relief="flat",
+        return tk.Button(parent, text=text, command=command, bg="#241217" if color not in (GREEN, RED) else "#5a111d", fg=TEXT,
+                         activebackground="#8e1728", activeforeground="white", relief="flat",
+                         bd=0, highlightthickness=1, highlightbackground="#7a2632",
                          cursor="hand2", font=("Segoe UI", 9, "bold"), padx=14, pady=9)
 
     def open_discord_server(self):
@@ -268,11 +318,11 @@ class AzToolApp:
         webbrowser.open("https://discord.gg/4W3CCJyfN", new=2)
 
     def _build(self):
-        header = tk.Frame(self.root, bg=BG)
+        header = tk.Frame(self.root, bg="#08080b")
         header.pack(fill="x", padx=28, pady=(22, 8))
-        self.label(header, "az Tool", size=25, bold=True).pack(anchor="w")
+        self.label(header, "az Tool", color="#ff3045", size=25, bold=True).pack(anchor="w")
         self.label(header, "LICENSED DESKTOP CLIENT", MUTED, 9, True).pack(anchor="w", pady=(2, 0))
-        self.button(header, "سيرفر الدسكورد", lambda: self.open_discord_server(), color="#29314a").pack(anchor="e", pady=(0, 4))
+        self.button(header, "سيرفر الدسكورد", lambda: self.open_discord_server(), color="#241217").pack(anchor="e", pady=(0, 4))
 
         license_card = self.card(self.root, "License", "Activate your key on this device.")
         self.license_card = license_card
