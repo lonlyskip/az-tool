@@ -227,7 +227,8 @@ class AzToolApp:
         self.label(header, "az Tool", size=25, bold=True).pack(anchor="w")
         self.label(header, "LICENSED DESKTOP CLIENT", MUTED, 9, True).pack(anchor="w", pady=(2, 0))
 
-        license_card = self.card(self.root, "01  /  License", "Activate your key on this device.")
+        license_card = self.card(self.root, "License", "Activate your key on this device.")
+        self.license_card = license_card
         row = tk.Frame(license_card, bg=PANEL)
         row.pack(fill="x")
         self.entry(row, self.license_key, show="•").pack(side="left", fill="x", expand=True, ipady=10)
@@ -241,7 +242,7 @@ class AzToolApp:
         self.gated_frame = tk.Frame(self.root, bg=BG)
         self.gated_frame.pack(fill="x")
 
-        self.discord_card = self.card(self.gated_frame, "02  /  Discord verification", "Enter your Discord user ID, then approve the bot's verification request.")
+        self.discord_card = self.card(self.gated_frame, "Discord verification", "Enter your Discord user ID, then approve the bot's verification request.")
         discord_card = self.discord_card
         self.entry(discord_card, self.discord_id).pack(fill="x", ipady=10)
         actions = tk.Frame(discord_card, bg=PANEL)
@@ -251,13 +252,13 @@ class AzToolApp:
         tk.Label(discord_card, textvariable=self.link_status, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
 
-        self.afk_card = self.card(self.gated_frame, "03  /  AFK", "F5 toggles AFK mode")
+        self.afk_card = self.card(self.gated_frame, "AFK", "F5 toggles AFK mode")
         self.afk_button = self.button(self.afk_card, "START AFK  [F5]", self.toggle_afk, color=GREEN, fg="#07110d")
         self.afk_button.pack(fill="x")
         self.afk_status = tk.StringVar(value="AFK is OFF.")
         tk.Label(self.afk_card, textvariable=self.afk_status, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(8, 0))
 
-        self.radar_card = self.card(self.gated_frame, "04  /  Spawn Radar", "Fortnite • Go Up for Brainrot • 1920 × 1080")
+        self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • 1920 × 1080")
         radar_card = self.radar_card
         self.radar_button = self.button(radar_card, "START RADAR", self.toggle_radar, color=GREEN, fg="#07110d")
         self.radar_button.pack(fill="x")
@@ -265,7 +266,7 @@ class AzToolApp:
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
         self.label(radar_card, "Detects Ascended Brainrot Spawned and Forbidden Brainrot Spawned.", MUTED, 9).pack(anchor="w", pady=(5, 0))
 
-        self.boost_card = self.card(self.gated_frame, "05  /  Optional boosts", "Optional system adjustments")
+        self.boost_card = self.card(self.gated_frame, "Optional boosts", "Optional system adjustments")
         self.fps_var = tk.BooleanVar(value=False)
         self.ping_var = tk.BooleanVar(value=False)
         tk.Checkbutton(self.boost_card, text="FPS boost", variable=self.fps_var, command=self.toggle_fps_boost,
@@ -274,6 +275,7 @@ class AzToolApp:
         tk.Checkbutton(self.boost_card, text="Ping boost", variable=self.ping_var, command=self.toggle_ping_boost,
                        bg=PANEL, fg=TEXT, selectcolor=PANEL_2, activebackground=PANEL,
                        activeforeground=TEXT, font=("Segoe UI", 10)).pack(anchor="w", pady=3)
+        self.label(self.boost_card, "ملاحظة: لو إعداداتك تلقائي على أعلى تركيز للعبة مابيفيدك تعزيز الفريمات.", MUTED, 9).pack(anchor="w", pady=(6, 0))
         self.boost_status = tk.StringVar(value="Boosts are OFF.")
         tk.Label(self.boost_card, textvariable=self.boost_status, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(6, 0))
@@ -330,6 +332,7 @@ class AzToolApp:
                 self.state["license_key"] = key
                 save_state(self.state)
                 self.root.after(0, lambda: self.status.set("Activated • license accepted"))
+                self.root.after(0, self.license_card.pack_forget)
                 self.root.after(0, lambda: self.expiry.set(str(result.get("expires_at") or result.get("expires") or "Active")))
                 self.root.after(0, self._show_gated_sections)
             else:
@@ -365,7 +368,7 @@ class AzToolApp:
             self._afk_thread = threading.Thread(target=self._afk_input_loop, daemon=True)
             self._afk_thread.start()
             self.afk_button.config(text="STOP AFK  [F5]", bg=RED, fg="white")
-            self.afk_status.set("AFK ON • Random W/A/S/D/P/Esc taps while Fortnite is focused.")
+            self.afk_status.set("AFK ON • P every second; random W/A/S/D taps while Fortnite is focused.")
         else:
             self._afk_stop.set()
             try:
@@ -376,27 +379,36 @@ class AzToolApp:
             self.afk_status.set("AFK is OFF.")
 
     def _afk_input_loop(self):
-        # Send short, randomized key taps only while the Fortnite window is foreground.
-        key_codes = {"W": 0x57, "A": 0x41, "S": 0x53, "D": 0x44, "P": 0x50, "ESC": 0x1B}
+        # Keep P on a one-second cadence; vary movement taps. Never send Esc.
+        key_codes = {"W": 0x57, "A": 0x41, "S": 0x53, "D": 0x44, "P": 0x50}
         user32 = ctypes.windll.user32
+        next_p = time.monotonic()
         while not self._afk_stop.is_set():
             try:
                 import win32gui
                 hwnd = win32gui.GetForegroundWindow()
                 title = win32gui.GetWindowText(hwnd).lower()
-                if "fortnite" in title:
-                    key = random.choice(("W", "A", "S", "D", "P", "ESC"))
-                    vk = key_codes[key]
-                    user32.keybd_event(vk, 0, 0, 0)
-                    self._afk_stop.wait(random.uniform(0.12, 0.35))
+                if "fortnite" not in title:
+                    self._afk_stop.wait(0.25)
+                    next_p = time.monotonic()
+                    continue
+
+                now = time.monotonic()
+                key = "P" if now >= next_p else random.choice(("W", "A", "S", "D"))
+                if key == "P":
+                    next_p = now + 1.0
+                vk = key_codes[key]
+                user32.keybd_event(vk, 0, 0, 0)
+                try:
+                    self._afk_stop.wait(random.uniform(0.045, 0.09))
+                finally:
                     user32.keybd_event(vk, 0, 0x0002, 0)
-                    self._afk_stop.wait(random.uniform(2.0, 6.0))
-                else:
-                    self._afk_stop.wait(1.0)
+                gap = random.uniform(0.18, 0.45) if key != "P" else max(0.02, next_p - time.monotonic())
+                self._afk_stop.wait(gap)
             except Exception as exc:
                 self.root.after(0, lambda err=str(exc): self.afk_status.set("AFK input error: " + err[:100]))
-                self._afk_stop.wait(2.0)
-    
+                self._afk_stop.wait(1.0)
+
     def toggle_fps_boost(self):
         if self.fps_var.get():
             try:
@@ -431,12 +443,25 @@ class AzToolApp:
             self.boost_status.set("FPS boost OFF • Normal priority requested.")
 
     def toggle_ping_boost(self):
-        if self.ping_var.get():
-            self.ping_var.set(False)
-            self.boost_status.set("Ping boost not applied: no safe local setting can guarantee lower game-server latency.")
-            messagebox.showinfo("Ping boost", "البنق يعتمد على مسار الشبكة وسيرفر اللعبة. ما راح أغيّر إعدادات شبكة حساسة بدون ضمان أو طريقة استرجاع آمنة.")
-        else:
+        if not self.ping_var.get():
             self.boost_status.set("Ping boost OFF.")
+            return
+        # Safely clear cached DNS records; this does not guarantee lower in-game latency.
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["ipconfig", "/flushdns"], capture_output=True, text=True,
+                timeout=8, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
+            if result.returncode == 0:
+                self.boost_status.set("DNS cache cleared. In-game ping may not change.")
+                messagebox.showinfo("Ping boost", "تم تحديث ذاكرة DNS بنجاح. هذا قد يساعد مشاكل حل أسماء النطاقات، لكنه لا يضمن خفض بنق سيرفر Fortnite.")
+            else:
+                self.boost_status.set("DNS refresh failed; try running as administrator.")
+                self.ping_var.set(False)
+        except Exception as exc:
+            self.ping_var.set(False)
+            self.boost_status.set("Ping option failed: " + str(exc)[:90])
 
     def request_link(self):
         key, discord_id = self.license_key.get().strip(), self.discord_id.get().strip()
