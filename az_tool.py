@@ -147,20 +147,20 @@ class AzToolApp:
         except (tk.TclError, OSError):
             pass
         self.state = load_state()
-        self.license_key = tk.StringVar(value=self.state.get("license_key", ""))
+        self.license_key = tk.StringVar(value="")
         self.discord_id = tk.StringVar(value=self.state.get("discord_id", ""))
-        self.status = tk.StringVar(value="Not activated")
-        self.link_status = tk.StringVar(value="Discord account not linked")
+        self.status = tk.StringVar(value="Subscription checks disabled")
+        self.link_status = tk.StringVar(value="Discord verification disabled")
         self.expiry = tk.StringVar(value="—")
-        self.radar_status = tk.StringVar(value="OFF • Waiting for license and Discord verification")
+        self.radar_status = tk.StringVar(value="OFF • Ready")
         self.radar_enabled = False
         self._polling = False
         self._radar_thread = None
         self._last_event_key = None
         self._last_event_at = 0.0
         self._last_license_check = 0.0
-        self._link_verified = False
-        self._discord_skipped = bool(self.state.get('discord_skipped', False))
+        self._link_verified = True
+        self._discord_skipped = True
         self.afk_enabled = False
         self._afk_stop = threading.Event()
         self._afk_thread = None
@@ -169,19 +169,10 @@ class AzToolApp:
         self._hotkey_ready = threading.Event()
         self._closing = False
         self._build()
-        cached_expiry = parse_expiry(self.state.get("expires_at"))
-        cached_key = str(self.state.get("license_key", "")).strip()
-        if cached_key and cached_expiry and cached_expiry > datetime.now(timezone.utc):
-            self.status.set("Active • manual check available")
-            self.expiry.set(cached_expiry.strftime("%Y-%m-%d %H:%M UTC"))
-            self.license_card.pack_forget()
-            self._show_gated_sections()
-        elif cached_key:
-            self.state.pop("license_key", None)
-            self.state.pop("expires_at", None)
-            save_state(self.state)
-            self.license_key.set("")
-            self.status.set("Subscription expired or needs activation")
+        self.license_card.pack_forget()
+        self.discord_card.pack_forget()
+        self.afk_card.pack(fill="x", padx=24, pady=8)
+        self.radar_card.pack(fill="x", padx=24, pady=8)
         if os.name == "nt":
             self._hotkey_thread = threading.Thread(target=self._global_f5_listener, daemon=True)
             self._hotkey_thread.start()
@@ -272,8 +263,7 @@ class AzToolApp:
         header = tk.Frame(self.root, bg=BG)
         header.pack(fill="x", padx=28, pady=(22, 8))
         self.label(header, "az Tool", size=25, bold=True).pack(anchor="w")
-        self.label(header, "LICENSED DESKTOP CLIENT", MUTED, 9, True).pack(anchor="w", pady=(2, 0))
-        self.button(header, "CHECK SUBSCRIPTION", self.check_subscription, color="#29314a").pack(anchor="e", pady=(0, 4))
+        self.label(header, "DESKTOP TOOL", MUTED, 9, True).pack(anchor="w", pady=(2, 0))
 
         license_card = self.card(self.root, "License", "Activate your key on this device.")
         self.license_card = license_card
@@ -316,117 +306,44 @@ class AzToolApp:
 
 
         self.discord_card.pack_forget()
-        self.afk_card.pack_forget()
-        self.radar_card.pack_forget()
+        self.license_card.pack_forget()
+        self.afk_card.pack(fill="x", padx=24, pady=8)
+        self.radar_card.pack(fill="x", padx=24, pady=8)
         # F5 is registered globally below so it works while Fortnite is focused.
 
         footer = tk.Frame(self.root, bg=BG)
         footer.pack(fill="x", padx=28, pady=(10, 18))
-        self.label(footer, "License validation • Foreground Fortnite window required • No full-screen upload", MUTED, 8).pack(anchor="w")
-        if self.license_key.get().strip():
-            self.status.set("Saved key loaded — activate to validate")
-        self.root.after(1000, self._refresh_link_state)
+        self.label(footer, "Foreground Fortnite window required • No full-screen upload", MUTED, 8).pack(anchor="w")
 
     def _show_gated_sections(self):
-        if not self._link_verified and not self._discord_skipped:
-            if not self.discord_card.winfo_manager():
-                self.discord_card.pack(fill="x", padx=24, pady=8)
-        else:
-            self.discord_card.pack_forget()
+        """Show app features without subscription or Discord gating."""
+        self.license_card.pack_forget()
+        self.discord_card.pack_forget()
         for card in (self.afk_card, self.radar_card):
             if not card.winfo_manager():
                 card.pack(fill="x", padx=24, pady=8)
-        if self._link_verified:
-            self.radar_button.config(state="normal", bg=GREEN)
-        else:
-            self.radar_button.config(state="disabled", bg="#303747")
-            self.radar_status.set("Discord verification is needed for alert delivery.")
+        self.radar_button.config(state="normal", bg=GREEN)
+        self.radar_status.set("OFF • Ready to detect Fortnite notifications.")
 
     def _hide_gated_sections(self):
         self.stop_radar()
-        self._link_verified = False
-        self._discord_skipped = False
-        self.discord_card.pack_forget()
-        self.afk_card.pack_forget()
-        self.radar_card.pack_forget()
 
     def activate(self):
-        key = self.license_key.get().strip()
-        if not key:
-            messagebox.showerror("License", "Enter your license key first.")
-            return
-        self.status.set("Checking license…")
-        threading.Thread(target=self._activate_worker, args=(key,), daemon=True).start()
+        self.status.set("Subscription checks are disabled.")
+        self._show_gated_sections()
 
     def _activate_worker(self, key):
-        try:
-            result = post("/api/activate", {"code": key, "device_id": device_id()})
-            if result.get("valid") is True or result.get("success") is True or result.get("activated") is True:
-                expiry_value = result.get("expires_at") or result.get("expires")
-                parsed_expiry = parse_expiry(expiry_value)
-                if not parsed_expiry or parsed_expiry <= datetime.now(timezone.utc):
-                    raise RuntimeError("License server did not return a future expiry time.")
-                self.state["license_key"] = key
-                self.state["expires_at"] = parsed_expiry.isoformat()
-                save_state(self.state)
-                self.root.after(0, lambda: self.status.set("Activated • license accepted"))
-                self.root.after(0, self.license_card.pack_forget)
-                self.root.after(0, lambda: self.expiry.set(parsed_expiry.strftime("%Y-%m-%d %H:%M UTC")))
-                self.root.after(0, self._show_gated_sections)
-            else:
-                self.state.pop("license_key", None)
-                self.state.pop("expires_at", None)
-                save_state(self.state)
-                self.root.after(0, lambda: self.license_key.set(""))
-                self.root.after(0, lambda: self.status.set("Activation failed"))
-                self.root.after(0, self.license_card.pack)
-                self.root.after(0, self._hide_gated_sections)
-                self.root.after(0, lambda: messagebox.showerror("فشل التفعيل", arabic_error(result.get("error", "Activation was rejected."))))
-        except Exception as exc:
-            self.root.after(0, lambda: self.status.set("Server unavailable"))
-            self.root.after(0, self._hide_gated_sections)
-            self.root.after(0, lambda err=str(exc): messagebox.showerror("Connection", f"Could not contact the license server.\n\n{err}"))
+        self._show_gated_sections()
 
     def check_subscription(self):
-        key = self.license_key.get().strip() or str(self.state.get("license_key", "")).strip()
-        if not key:
-            self.license_card.pack(fill="x", padx=24, pady=8)
-            self.status.set("Enter a license key, then activate.")
-            return
-        self.status.set("Checking subscription…")
-        threading.Thread(target=self._check_subscription_worker, args=(key,), daemon=True).start()
+        self.status.set("Subscription checks are disabled.")
 
     def _check_subscription_worker(self, key):
-        try:
-            result = post("/api/validate", {"code": key, "device_id": device_id()})
-            valid = result.get("valid") is True or result.get("success") is True
-            expiry_value = result.get("expires_at") or result.get("expires") or self.state.get("expires_at")
-            parsed_expiry = parse_expiry(expiry_value)
-            valid = valid and parsed_expiry is not None and parsed_expiry > datetime.now(timezone.utc)
-            if valid:
-                self.state["license_key"] = key
-                self.state["expires_at"] = parsed_expiry.isoformat()
-                save_state(self.state)
-                self.root.after(0, lambda: self.status.set("Subscription verified"))
-                self.root.after(0, lambda: self.expiry.set(parsed_expiry.strftime("%Y-%m-%d %H:%M UTC")))
-                self.root.after(0, self.license_card.pack_forget)
-                self.root.after(0, self._show_gated_sections)
-            else:
-                self.state.pop("license_key", None)
-                self.state.pop("expires_at", None)
-                save_state(self.state)
-                self.root.after(0, lambda: self.license_key.set(""))
-                self.root.after(0, lambda: self.status.set("Subscription expired or revoked"))
-                self.root.after(0, self._hide_gated_sections)
-                self.root.after(0, lambda: self.license_card.pack(fill="x", padx=24, pady=8))
-                self.root.after(0, lambda: messagebox.showerror("الاشتراك", "الاشتراك منتهي أو ملغي. أدخل كودًا صالحًا للتفعيل."))
-        except Exception:
-            self.root.after(0, lambda: self.status.set("Could not verify subscription"))
-            self.root.after(0, lambda: messagebox.showerror("الاشتراك", "تعذر التحقق الآن. لم يتم اعتبار الاشتراك صالحًا بناءً على هذا الفحص."))
+        self.status.set("Subscription checks are disabled.")
+
     def skip_discord(self):
         self._discord_skipped = True
-        self.state["discord_skipped"] = True
-        save_state(self.state)
+        self._link_verified = True
         self._show_gated_sections()
 
     def _global_f5_listener(self):
@@ -451,9 +368,6 @@ class AzToolApp:
             self.root.after(0, lambda err=str(exc): self.afk_status.set("Global F5 error: " + err[:90]))
 
     def toggle_afk(self):
-        if not self.license_key.get().strip():
-            messagebox.showerror("AFK", "Activate your license first.")
-            return
         if os.name != "nt":
             messagebox.showerror("AFK", "Automatic key input is supported on Windows only.")
             return
@@ -510,6 +424,10 @@ class AzToolApp:
                 self._afk_stop.wait(1.0)
 
     def request_link(self):
+        messagebox.showinfo("Discord verification", "Discord verification has been disabled.")
+        self._link_verified = True
+        self._show_gated_sections()
+        return
         key, discord_id = self.license_key.get().strip(), self.discord_id.get().strip()
         if not key:
             messagebox.showerror("License", "Activate your license first.")
@@ -565,31 +483,12 @@ class AzToolApp:
             time.sleep(4)
 
     def _refresh_link_state(self):
-        # Enforce the cached expiry locally even when the user chooses manual server checks.
-        cached_expiry = parse_expiry(self.state.get("expires_at"))
-        if self.state.get("license_key") and (not cached_expiry or cached_expiry <= datetime.now(timezone.utc)):
-            self.state.pop("license_key", None)
-            self.state.pop("expires_at", None)
-            save_state(self.state)
-            self.license_key.set("")
-            self.status.set("Subscription expired • activate a new key")
-            self._hide_gated_sections()
-            if not self.license_card.winfo_manager():
-                self.license_card.pack(fill="x", padx=24, pady=8)
-        # Radar cannot be started merely because an ID was typed; server approval is required.
-        if self.radar_enabled and (not self.license_key.get().strip() or not self._link_verified):
-            self.root.after(0, self.stop_radar)
-        self.root.after(3000, self._refresh_link_state)
+        # Subscription expiry enforcement and background validation are disabled.
+        return
 
     def toggle_radar(self):
         if self.radar_enabled:
             self.stop_radar()
-            return
-        if not self.license_key.get().strip():
-            messagebox.showerror("Radar locked", "Activate a valid license first.")
-            return
-        if not self._link_verified:
-            messagebox.showerror("Radar locked", "Verify and approve your Discord link first.")
             return
         try:
             import mss, rapidocr_onnxruntime
