@@ -38,6 +38,7 @@ jobs:
       - name: Compile executable with Nuitka
         run: >-
           python -m nuitka --mode=onefile --windows-console-mode=disable
+          --assume-yes-for-downloads
           --enable-plugin=tk-inter
           --include-package=rapidocr_onnxruntime
           --include-package=onnxruntime
