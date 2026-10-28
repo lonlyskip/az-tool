@@ -746,10 +746,10 @@ class AzToolApp:
                     time.sleep(POLL_SECONDS)
                     continue
                 with mss.mss() as sct:
-                    monitor = sct.monitors[1]
+                    monitor = sct.monitors[0]  # Entire virtual desktop across all connected displays
                     screen_width = int(monitor["width"])
                     screen_height = int(monitor["height"])
-                    # Full-screen capture of the primary display, including all corners.
+                    # Full virtual-desktop capture across all connected displays, including all corners.
                     region = {
                         "left": int(monitor["left"]),
                         "top": int(monitor["top"]),
