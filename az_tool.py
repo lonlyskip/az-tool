@@ -249,7 +249,6 @@ class AzToolApp:
         tk.Label(radar_card, textvariable=self.radar_status, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
         self.label(radar_card, "Detects “Ascended Brainrot Spawned” and the red character name in the bottom-centre notification area.", MUTED, 9).pack(anchor="w", pady=(5, 0))
-        self.label(radar_card, "Notification images are sent in memory to your linked Discord account; no image file is saved.", MUTED, 9).pack(anchor="w", pady=(5, 0))
 
         # Keep Discord verification and radar hidden until the license validates.
         self.discord_card.pack_forget()
@@ -423,7 +422,7 @@ class AzToolApp:
                         if len(item) < 2:
                             continue
                         word = str(item[1]).strip().lower()
-                        if any(k in word for k in ("ascended", "brainrot", "spawned")):
+                        if any(k in word for k in ("ascended", "forbidden", "brainrot", "spawned")):
                             pts = item[0]
                             xs = [float(p[0]) for p in pts]
                             ys = [float(p[1]) for p in pts]
