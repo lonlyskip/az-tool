@@ -536,11 +536,12 @@ class AzToolApp:
             self.afk_status.set("AFK is OFF.")
 
     def _afk_input_loop(self):
-        # Keep P on its original one-second cadence while holding each movement key
-        # for two seconds. Always release held keys when AFK is stopped or focus changes.
-        key_codes = {"W": 0x57, "A": 0x41, "S": 0x53, "D": 0x44, "P": 0x50}
+        # Tap P on its one-second cadence and ESC once every ten seconds while AFK is active.
+        # Movement keys are held for one second and all held keys are released on stop/focus change.
+        key_codes = {"W": 0x57, "A": 0x41, "S": 0x53, "D": 0x44, "P": 0x50, "ESC": 0x1B}
         user32 = ctypes.windll.user32
         next_p = time.monotonic()
+        next_esc = time.monotonic() + 10.0
         last_focus_notice = 0.0
 
         def tap_key(vk, duration=0.06):
@@ -575,6 +576,9 @@ class AzToolApp:
                     if now >= next_p:
                         tap_key(key_codes["P"], 0.06)
                         next_p = time.monotonic() + 1.0
+                    if time.monotonic() >= next_esc:
+                        tap_key(key_codes["ESC"], 0.06)
+                        next_esc = time.monotonic() + 10.0
                     self._afk_stop.wait(min(0.04, max(0.0, hold_until - time.monotonic())))
                 user32.keybd_event(held_vk, 0, 0x0002, 0)
                 held_vk = None
