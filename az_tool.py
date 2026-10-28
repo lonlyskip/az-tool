@@ -6,6 +6,7 @@ import io
 import base64
 import uuid
 import re
+import random
 import threading
 import time
 import tkinter as tk
@@ -134,6 +135,8 @@ class AzToolApp:
         self._link_verified = False
         self._discord_skipped = bool(self.state.get('discord_skipped', False))
         self.afk_enabled = False
+        self._afk_stop = threading.Event()
+        self._afk_thread = None
         self._build()
 
     def label(self, parent, text, color=TEXT, size=10, bold=False):
@@ -348,19 +351,51 @@ class AzToolApp:
         if not self.license_key.get().strip():
             messagebox.showerror("AFK", "Activate your license first.")
             return
+        if os.name != "nt":
+            messagebox.showerror("AFK", "Automatic key input is supported on Windows only.")
+            return
+
         self.afk_enabled = not self.afk_enabled
-        try:
-            if os.name == "nt":
-                flag = 0x80000000 | (0x00000001 | 0x00000002 if self.afk_enabled else 0)
-                ctypes.windll.kernel32.SetThreadExecutionState(flag)
-        except Exception:
-            pass
         if self.afk_enabled:
+            self._afk_stop.clear()
+            try:
+                ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000002)
+            except Exception:
+                pass
+            self._afk_thread = threading.Thread(target=self._afk_input_loop, daemon=True)
+            self._afk_thread.start()
             self.afk_button.config(text="STOP AFK  [F5]", bg=RED, fg="white")
-            self.afk_status.set("AFK ON • Prevents Windows idle sleep/display timeout; does not simulate game input.")
+            self.afk_status.set("AFK ON • Random W/A/S/D/P/Esc taps while Fortnite is focused.")
         else:
+            self._afk_stop.set()
+            try:
+                ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+            except Exception:
+                pass
             self.afk_button.config(text="START AFK  [F5]", bg=GREEN, fg="#07110d")
             self.afk_status.set("AFK is OFF.")
+
+    def _afk_input_loop(self):
+        # Send short, randomized key taps only while the Fortnite window is foreground.
+        key_codes = {"W": 0x57, "A": 0x41, "S": 0x53, "D": 0x44, "P": 0x50, "ESC": 0x1B}
+        user32 = ctypes.windll.user32
+        while not self._afk_stop.is_set():
+            try:
+                import win32gui
+                hwnd = win32gui.GetForegroundWindow()
+                title = win32gui.GetWindowText(hwnd).lower()
+                if "fortnite" in title:
+                    key = random.choice(("W", "A", "S", "D", "P", "ESC"))
+                    vk = key_codes[key]
+                    user32.keybd_event(vk, 0, 0, 0)
+                    self._afk_stop.wait(random.uniform(0.12, 0.35))
+                    user32.keybd_event(vk, 0, 0x0002, 0)
+                    self._afk_stop.wait(random.uniform(2.0, 6.0))
+                else:
+                    self._afk_stop.wait(1.0)
+            except Exception as exc:
+                self.root.after(0, lambda err=str(exc): self.afk_status.set("AFK input error: " + err[:100]))
+                self._afk_stop.wait(2.0)
     
     def toggle_fps_boost(self):
         if self.fps_var.get():
