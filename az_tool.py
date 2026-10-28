@@ -9,6 +9,7 @@ import re
 import threading
 import time
 import tkinter as tk
+import ctypes
 from tkinter import messagebox
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -131,6 +132,8 @@ class AzToolApp:
         self._last_event_at = 0.0
         self._last_license_check = 0.0
         self._link_verified = False
+        self._discord_skipped = bool(self.state.get('discord_skipped', False))
+        self.afk_enabled = False
         self._build()
 
     def label(self, parent, text, color=TEXT, size=10, bold=False):
@@ -238,21 +241,45 @@ class AzToolApp:
         self.discord_card = self.card(self.gated_frame, "02  /  Discord verification", "Enter your Discord user ID, then approve the bot's verification request.")
         discord_card = self.discord_card
         self.entry(discord_card, self.discord_id).pack(fill="x", ipady=10)
-        self.button(discord_card, "VERIFY & SAVE", self.request_link, color="#29314a").pack(anchor="e", pady=(10, 0))
+        actions = tk.Frame(discord_card, bg=PANEL)
+        actions.pack(fill="x", pady=(10, 0))
+        self.button(actions, "VERIFY & SAVE", self.request_link, color="#29314a").pack(side="left")
+        self.button(actions, "SKIP FOR NOW", self.skip_discord, color="#303747").pack(side="right")
         tk.Label(discord_card, textvariable=self.link_status, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
 
-        self.radar_card = self.card(self.gated_frame, "03  /  Spawn Radar", "Fortnite • Go Up for Brainrot • 1920 × 1080")
+        self.afk_card = self.card(self.gated_frame, "03  /  AFK", "F5 toggles AFK mode")
+        self.afk_button = self.button(self.afk_card, "START AFK  [F5]", self.toggle_afk, color=GREEN, fg="#07110d")
+        self.afk_button.pack(fill="x")
+        self.afk_status = tk.StringVar(value="AFK is OFF.")
+        tk.Label(self.afk_card, textvariable=self.afk_status, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(8, 0))
+
+        self.radar_card = self.card(self.gated_frame, "04  /  Spawn Radar", "Fortnite • Go Up for Brainrot • 1920 × 1080")
         radar_card = self.radar_card
         self.radar_button = self.button(radar_card, "START RADAR", self.toggle_radar, color=GREEN, fg="#07110d")
         self.radar_button.pack(fill="x")
         tk.Label(radar_card, textvariable=self.radar_status, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
-        self.label(radar_card, "Detects “Ascended Brainrot Spawned” and the red character name in the bottom-centre notification area.", MUTED, 9).pack(anchor="w", pady=(5, 0))
+        self.label(radar_card, "Detects Ascended Brainrot Spawned and Forbidden Brainrot Spawned.", MUTED, 9).pack(anchor="w", pady=(5, 0))
 
-        # Keep Discord verification and radar hidden until the license validates.
+        self.boost_card = self.card(self.gated_frame, "05  /  Optional boosts", "Optional system adjustments")
+        self.fps_var = tk.BooleanVar(value=False)
+        self.ping_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(self.boost_card, text="FPS boost", variable=self.fps_var, command=self.toggle_fps_boost,
+                       bg=PANEL, fg=TEXT, selectcolor=PANEL_2, activebackground=PANEL,
+                       activeforeground=TEXT, font=("Segoe UI", 10)).pack(anchor="w", pady=3)
+        tk.Checkbutton(self.boost_card, text="Ping boost", variable=self.ping_var, command=self.toggle_ping_boost,
+                       bg=PANEL, fg=TEXT, selectcolor=PANEL_2, activebackground=PANEL,
+                       activeforeground=TEXT, font=("Segoe UI", 10)).pack(anchor="w", pady=3)
+        self.boost_status = tk.StringVar(value="Boosts are OFF.")
+        tk.Label(self.boost_card, textvariable=self.boost_status, bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(6, 0))
+
         self.discord_card.pack_forget()
+        self.afk_card.pack_forget()
         self.radar_card.pack_forget()
+        self.boost_card.pack_forget()
+        self.root.bind("<F5>", lambda event: self.toggle_afk())
 
         footer = tk.Frame(self.root, bg=BG)
         footer.pack(fill="x", padx=28, pady=(10, 18))
@@ -262,16 +289,28 @@ class AzToolApp:
         self.root.after(1000, self._refresh_link_state)
 
     def _show_gated_sections(self):
-        if not self.discord_card.winfo_manager():
-            self.discord_card.pack(fill="x", padx=24, pady=8)
-        if not self.radar_card.winfo_manager():
-            self.radar_card.pack(fill="x", padx=24, pady=8)
+        if not self._link_verified and not self._discord_skipped:
+            if not self.discord_card.winfo_manager():
+                self.discord_card.pack(fill="x", padx=24, pady=8)
+        else:
+            self.discord_card.pack_forget()
+        for card in (self.afk_card, self.radar_card, self.boost_card):
+            if not card.winfo_manager():
+                card.pack(fill="x", padx=24, pady=8)
+        if self._link_verified:
+            self.radar_button.config(state="normal", bg=GREEN)
+        else:
+            self.radar_button.config(state="disabled", bg="#303747")
+            self.radar_status.set("Discord verification is needed for alert delivery.")
 
     def _hide_gated_sections(self):
         self.stop_radar()
         self._link_verified = False
+        self._discord_skipped = False
         self.discord_card.pack_forget()
+        self.afk_card.pack_forget()
         self.radar_card.pack_forget()
+        self.boost_card.pack_forget()
 
     def activate(self):
         key = self.license_key.get().strip()
@@ -299,6 +338,71 @@ class AzToolApp:
             self.root.after(0, self._hide_gated_sections)
             self.root.after(0, lambda err=str(exc): messagebox.showerror("Connection", f"Could not contact the license server.\n\n{err}"))
 
+    def skip_discord(self):
+        self._discord_skipped = True
+        self.state["discord_skipped"] = True
+        save_state(self.state)
+        self._show_gated_sections()
+
+    def toggle_afk(self):
+        if not self.license_key.get().strip():
+            messagebox.showerror("AFK", "Activate your license first.")
+            return
+        self.afk_enabled = not self.afk_enabled
+        try:
+            if os.name == "nt":
+                flag = 0x80000000 | (0x00000001 | 0x00000002 if self.afk_enabled else 0)
+                ctypes.windll.kernel32.SetThreadExecutionState(flag)
+        except Exception:
+            pass
+        if self.afk_enabled:
+            self.afk_button.config(text="STOP AFK  [F5]", bg=RED, fg="white")
+            self.afk_status.set("AFK ON • Prevents Windows idle sleep/display timeout; does not simulate game input.")
+        else:
+            self.afk_button.config(text="START AFK  [F5]", bg=GREEN, fg="#07110d")
+            self.afk_status.set("AFK is OFF.")
+    
+    def toggle_fps_boost(self):
+        if self.fps_var.get():
+            try:
+                import win32gui, win32process, win32api, win32con
+                hwnd = win32gui.FindWindow(None, "Fortnite")
+                if not hwnd:
+                    hwnd = win32gui.GetForegroundWindow()
+                    if "fortnite" not in win32gui.GetWindowText(hwnd).lower():
+                        raise RuntimeError("Open Fortnite first.")
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                handle = win32api.OpenProcess(win32con.PROCESS_SET_INFORMATION, False, pid)
+                try:
+                    win32process.SetPriorityClass(handle, win32process.HIGH_PRIORITY_CLASS)
+                finally:
+                    win32api.CloseHandle(handle)
+                self.boost_status.set("FPS boost ON • Fortnite priority set to High; performance may vary.")
+            except Exception as exc:
+                self.fps_var.set(False)
+                self.boost_status.set("FPS boost couldn't be applied: " + str(exc)[:90])
+        else:
+            try:
+                import win32gui, win32process, win32api, win32con
+                hwnd = win32gui.FindWindow(None, "Fortnite") or win32gui.GetForegroundWindow()
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                handle = win32api.OpenProcess(win32con.PROCESS_SET_INFORMATION, False, pid)
+                try:
+                    win32process.SetPriorityClass(handle, win32process.NORMAL_PRIORITY_CLASS)
+                finally:
+                    win32api.CloseHandle(handle)
+            except Exception:
+                pass
+            self.boost_status.set("FPS boost OFF • Normal priority requested.")
+
+    def toggle_ping_boost(self):
+        if self.ping_var.get():
+            self.ping_var.set(False)
+            self.boost_status.set("Ping boost not applied: no safe local setting can guarantee lower game-server latency.")
+            messagebox.showinfo("Ping boost", "البنق يعتمد على مسار الشبكة وسيرفر اللعبة. ما راح أغيّر إعدادات شبكة حساسة بدون ضمان أو طريقة استرجاع آمنة.")
+        else:
+            self.boost_status.set("Ping boost OFF.")
+
     def request_link(self):
         key, discord_id = self.license_key.get().strip(), self.discord_id.get().strip()
         if not key:
@@ -318,6 +422,7 @@ class AzToolApp:
                 self._link_verified = True
                 save_state(self.state)
                 self.root.after(0, lambda: self.link_status.set("Discord already linked and verified."))
+                self.root.after(0, self._show_gated_sections)
             elif result.get("request_id"):
                 self.state["discord_id"] = discord_id
                 self.state["link_request_id"] = result.get("request_id")
@@ -343,6 +448,7 @@ class AzToolApp:
                 if status in ("confirmed", "approved", "linked", "accepted") and result.get("linked"):
                     self._link_verified = True
                     self.root.after(0, lambda: self.link_status.set("Discord verified."))
+                    self.root.after(0, self._show_gated_sections)
                     return
                 if status in ("rejected", "expired", "denied"):
                     self._link_verified = False
@@ -470,6 +576,11 @@ class AzToolApp:
     def close(self):
         self._polling = False
         self.radar_enabled = False
+        try:
+            if os.name == "nt":
+                ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+        except Exception:
+            pass
         self.root.destroy()
 
 
