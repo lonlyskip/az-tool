@@ -92,17 +92,31 @@ def arabic_error(message):
 
 
 def load_state():
+    """Load only a valid state object; tolerate missing or damaged local state."""
     try:
         with open(STATE_FILE, "r", encoding="utf-8") as file:
-            return json.load(file)
-    except (OSError, ValueError):
+            state = json.load(file)
+        return state if isinstance(state, dict) else {}
+    except (OSError, ValueError, TypeError):
         return {}
 
 
 def save_state(state):
+    """Atomically persist state so interruption cannot leave a truncated JSON file."""
     os.makedirs(APP_DIR, exist_ok=True)
-    with open(STATE_FILE, "w", encoding="utf-8") as file:
-        json.dump(state, file)
+    temporary_path = STATE_FILE + ".tmp"
+    try:
+        with open(temporary_path, "w", encoding="utf-8") as file:
+            json.dump(state, file, ensure_ascii=False)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary_path, STATE_FILE)
+    finally:
+        try:
+            if os.path.exists(temporary_path):
+                os.remove(temporary_path)
+        except OSError:
+            pass
 
 
 def parse_expiry(value):
