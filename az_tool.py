@@ -309,7 +309,6 @@ class AzToolApp:
         self.discord_card.pack_forget()
         self.afk_card.pack_forget()
         self.radar_card.pack_forget()
-        self.boost_card.pack_forget()
 
     def activate(self):
         key = self.license_key.get().strip()
