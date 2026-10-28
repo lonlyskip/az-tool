@@ -22,10 +22,10 @@ LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "az tool")
 STATE_FILE = os.path.join(APP_DIR, "state.json")
 # Spawn headline is in the lower-middle area; calculate relative to the primary display.
-REGION_WIDTH = 1400
-REGION_HEIGHT = 360
-REGION_TOP_RATIO = 0.58
-POLL_SECONDS = 0.8
+REGION_WIDTH = 1920
+REGION_HEIGHT = 620
+REGION_TOP_RATIO = 0.40
+POLL_SECONDS = 0.45
 EVENT_COOLDOWN_SECONDS = 3.0
 
 BG = "#0b0d12"
@@ -140,6 +140,17 @@ class AzToolApp:
         self.root.geometry("620x720")
         self.root.minsize(580, 680)
         self.root.configure(bg=BG)
+        # Force the native Windows caption/title bar into dark mode.
+        self.root.update_idletasks()
+        if os.name == "nt":
+            try:
+                hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+                dark = ctypes.c_int(1)
+                for attribute in (20, 19):
+                    if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(dark), ctypes.sizeof(dark)) == 0:
+                        break
+            except Exception:
+                pass
         icon_path = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "assets", "az-tool-icon.ico")
         # PyInstaller bundles the same feather icon for the executable and the app window/taskbar.
         if not os.path.exists(icon_path):
@@ -797,9 +808,15 @@ class AzToolApp:
                         crop = image
                     crop_detections, _ = ocr(np.array(crop))
                     crop_text = " ".join(str(item[1]) for item in (crop_detections or []) if len(item) > 1)
-                    event_key = re.sub(r"\s+", " ", crop_text.lower()).strip()
+                    # Do not discard a detected alert just because OCR misses it on the second crop pass.
+                    crop_normalized = re.sub(r"[^a-z0-9 ]", " ", crop_text.lower())
+                    crop_normalized = re.sub(r"\s+", " ", crop_normalized).strip()
+                    if "spawned" not in crop_normalized:
+                        crop = image
+                        crop_text = recognized or "Spawned"
+                    event_key = re.sub(r"\s+", " ", (crop_text or recognized or "Spawned").lower()).strip()
                     now = time.time()
-                    if event_key and (event_key != self._last_event_key or now - self._last_event_at > EVENT_COOLDOWN_SECONDS):
+                    if event_key != self._last_event_key or now - self._last_event_at > EVENT_COOLDOWN_SECONDS:
                         # Encode the crop in memory only; never write a screenshot file to disk.
                         buffer = io.BytesIO()
                         crop.save(buffer, format="PNG")
