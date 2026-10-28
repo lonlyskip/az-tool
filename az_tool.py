@@ -21,10 +21,7 @@ APP_NAME = "az tool"
 LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "az tool")
 STATE_FILE = os.path.join(APP_DIR, "state.json")
-# Spawn headline is in the lower-middle area; calculate relative to the primary display.
-REGION_WIDTH = 1920
-REGION_HEIGHT = 620
-REGION_TOP_RATIO = 0.40
+# Scan the entire primary display so Spawned notifications are not missed by a fixed ROI.
 POLL_SECONDS = 0.45
 EVENT_COOLDOWN_SECONDS = 3.0
 
@@ -318,13 +315,13 @@ class AzToolApp:
         self.afk_status = tk.StringVar(value="AFK is OFF.")
         tk.Label(self.afk_card, textvariable=self.afk_status, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(8, 0))
 
-        self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • 1920 × 1080")
+        self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • Full-screen detection")
         radar_card = self.radar_card
         self.radar_button = self.button(radar_card, "START RADAR", self.toggle_radar, color=GREEN, fg="#07110d")
         self.radar_button.pack(fill="x")
         tk.Label(radar_card, textvariable=self.radar_status, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
-        self.label(radar_card, "Detects any notification containing Spawned and sends it to Discord.", MUTED, 9).pack(anchor="w", pady=(5, 0))
+        self.label(radar_card, "Scans the full primary screen for any visible notification containing Spawned and sends it to Discord.", MUTED, 9).pack(anchor="w", pady=(5, 0))
 
 
         self.discord_card.pack_forget()
@@ -334,7 +331,7 @@ class AzToolApp:
 
         footer = tk.Frame(self.root, bg=BG)
         footer.pack(fill="x", padx=28, pady=(10, 18))
-        self.label(footer, "License validation • Foreground Fortnite window required • No full-screen upload", MUTED, 8).pack(anchor="w")
+        self.label(footer, "License validation • Foreground Fortnite window required • Screen image sent only when Spawned is detected", MUTED, 8).pack(anchor="w")
         if self.license_key.get().strip():
             self.status.set("Saved key loaded — activate to validate")
         self.root.after(1000, self._refresh_link_state)
@@ -752,13 +749,12 @@ class AzToolApp:
                     monitor = sct.monitors[1]
                     screen_width = int(monitor["width"])
                     screen_height = int(monitor["height"])
-                    region_width = min(REGION_WIDTH, screen_width)
-                    region_height = min(REGION_HEIGHT, screen_height)
+                    # Full-screen capture of the primary display, including all corners.
                     region = {
-                        "left": int(monitor["left"] + max(0, (screen_width - region_width) // 2)),
-                        "top": int(monitor["top"] + min(max(0, screen_height - region_height), int(screen_height * REGION_TOP_RATIO))),
-                        "width": region_width,
-                        "height": region_height,
+                        "left": int(monitor["left"]),
+                        "top": int(monitor["top"]),
+                        "width": screen_width,
+                        "height": screen_height,
                     }
                     shot = sct.grab(region)
                     image = Image.frombytes("RGB", shot.size, shot.rgb)
