@@ -22,9 +22,9 @@ LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "az tool")
 STATE_FILE = os.path.join(APP_DIR, "state.json")
 # Spawn headline is in the lower-middle area; calculate relative to the primary display.
-REGION_WIDTH = 1100
-REGION_HEIGHT = 260
-REGION_TOP_RATIO = 0.62
+REGION_WIDTH = 1000
+REGION_HEIGHT = 210
+REGION_TOP_RATIO = 0.75
 POLL_SECONDS = 0.8
 EVENT_COOLDOWN_SECONDS = 3.0
 
