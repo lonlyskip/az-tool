@@ -268,12 +268,16 @@ class AzToolApp:
                          activebackground=color, activeforeground=fg, relief="flat",
                          cursor="hand2", font=("Segoe UI", 9, "bold"), padx=14, pady=9)
 
+    def open_discord_server(self):
+        import webbrowser
+        webbrowser.open("https://discord.gg/4W3CCJyfN", new=2)
+
     def _build(self):
         header = tk.Frame(self.root, bg=BG)
         header.pack(fill="x", padx=28, pady=(22, 8))
         self.label(header, "az Tool", size=25, bold=True).pack(anchor="w")
         self.label(header, "LICENSED DESKTOP CLIENT", MUTED, 9, True).pack(anchor="w", pady=(2, 0))
-        self.button(header, "CHECK SUBSCRIPTION", self.check_subscription, color="#29314a").pack(anchor="e", pady=(0, 4))
+        self.button(header, "سيرفر الدسكورد", lambda: self.open_discord_server(), color="#29314a").pack(anchor="e", pady=(0, 4))
 
         license_card = self.card(self.root, "License", "Activate your key on this device.")
         self.license_card = license_card
