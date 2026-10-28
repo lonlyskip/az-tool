@@ -743,25 +743,24 @@ class AzToolApp:
                 recognized = " ".join(str(item[1]) for item in words if len(item) > 1)
                 normalized = re.sub(r"[^a-z0-9 ]", " ", recognized.lower())
                 normalized = re.sub(r"\s+", " ", normalized).strip()
-                phrase_found = (
-                    ("brainrot" in normalized and "spawned" in normalized and ("ascended" in normalized or "forbidden" in normalized))
-                )
+                # Treat any readable OCR text in the configured radar region as a spawn
+                # notification, regardless of its exact wording (e.g. "Spawned", character
+                # names, or future notification text). Keep the capture limited to REGION.
+                phrase_found = bool(normalized)
                 if phrase_found:
-                    phrase_boxes = []
+                    text_boxes = []
                     for item in words:
-                        if len(item) < 2:
+                        if len(item) < 2 or not str(item[1]).strip():
                             continue
-                        word = str(item[1]).strip().lower()
-                        if any(k in word for k in ("ascended", "forbidden", "brainrot", "spawned")):
-                            pts = item[0]
-                            xs = [float(p[0]) for p in pts]
-                            ys = [float(p[1]) for p in pts]
-                            phrase_boxes.append((min(xs), min(ys), max(xs), max(ys)))
-                    if phrase_boxes:
-                        x0 = max(0, int(min(b[0] for b in phrase_boxes) - 45))
-                        y0 = max(0, int(min(b[1] for b in phrase_boxes) - 20))
-                        x1 = min(image.width, int(max(b[2] for b in phrase_boxes) + 45))
-                        y1 = min(image.height, int(max(b[3] for b in phrase_boxes) + 100))
+                        pts = item[0]
+                        xs = [float(p[0]) for p in pts]
+                        ys = [float(p[1]) for p in pts]
+                        text_boxes.append((min(xs), min(ys), max(xs), max(ys)))
+                    if text_boxes:
+                        x0 = max(0, int(min(b[0] for b in text_boxes) - 45))
+                        y0 = max(0, int(min(b[1] for b in text_boxes) - 20))
+                        x1 = min(image.width, int(max(b[2] for b in text_boxes) + 45))
+                        y1 = min(image.height, int(max(b[3] for b in text_boxes) + 100))
                         crop = image.crop((x0, y0, x1, y1))
                     else:
                         crop = image
@@ -775,7 +774,7 @@ class AzToolApp:
                         crop.save(buffer, format="PNG")
                         image_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
                         event_id = uuid.uuid4().hex
-                        character_name = crop_text[:120] or "Ascended Brainrot"
+                        character_name = ("Spawned: " + crop_text[:110]) if crop_text.strip() else "Spawned"
                         result = post("/api/radar/event", {
                             "code": self.license_key.get().strip(),
                             "device_id": device_id(),
