@@ -415,7 +415,7 @@ class AzToolApp:
                 normalized = re.sub(r"[^a-z0-9 ]", " ", recognized.lower())
                 normalized = re.sub(r"\s+", " ", normalized).strip()
                 phrase_found = (
-                    "ascended" in normalized and "brainrot" in normalized and "spawned" in normalized
+                    ("brainrot" in normalized and "spawned" in normalized and ("ascended" in normalized or "forbidden" in normalized))
                 )
                 if phrase_found:
                     phrase_boxes = []
