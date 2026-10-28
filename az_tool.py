@@ -756,13 +756,10 @@ class AzToolApp:
                 recognized = " ".join(str(item[1]) for item in words if len(item) > 1)
                 normalized = re.sub(r"[^a-z0-9 ]", " ", recognized.lower())
                 normalized = re.sub(r"\s+", " ", normalized).strip()
-                # Detect the white notification headline, not the creature name/color.
-                # The creature name can be red, blue, or another color and varies by spawn.
-                # Require the stable headline words so ordinary HUD text does not trigger.
-                has_brainrot = "brainrot" in normalized or "brain rot" in normalized
-                has_spawned = "spawned" in normalized or "spawn" in normalized
-                has_type = "ascended" in normalized or "forbidden" in normalized
-                phrase_found = has_brainrot and has_spawned and has_type
+                # Any spawn notification counts, regardless of type (Forbidden,
+                # Ascended, or other spawn variants) and regardless of creature name/color.
+                # Match the stable "Spawned" word in the lower-center notification region.
+                phrase_found = "spawned" in normalized
                 if phrase_found:
                     text_boxes = []
                     for item in words:
