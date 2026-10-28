@@ -11,6 +11,7 @@ import threading
 import time
 import tkinter as tk
 import ctypes
+import ctypes.wintypes
 from tkinter import messagebox
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -137,7 +138,14 @@ class AzToolApp:
         self.afk_enabled = False
         self._afk_stop = threading.Event()
         self._afk_thread = None
+        self._hotkey_thread = None
+        self._hotkey_thread_id = None
+        self._hotkey_ready = threading.Event()
+        self._closing = False
         self._build()
+        if os.name == "nt":
+            self._hotkey_thread = threading.Thread(target=self._global_f5_listener, daemon=True)
+            self._hotkey_thread.start()
 
     def label(self, parent, text, color=TEXT, size=10, bold=False):
         return tk.Label(parent, text=text, bg=parent["bg"], fg=color,
@@ -284,7 +292,7 @@ class AzToolApp:
         self.afk_card.pack_forget()
         self.radar_card.pack_forget()
         self.boost_card.pack_forget()
-        self.root.bind("<F5>", lambda event: self.toggle_afk())
+        # F5 is registered globally below so it works while Fortnite is focused.
 
         footer = tk.Frame(self.root, bg=BG)
         footer.pack(fill="x", padx=28, pady=(10, 18))
@@ -349,6 +357,27 @@ class AzToolApp:
         self.state["discord_skipped"] = True
         save_state(self.state)
         self._show_gated_sections()
+
+    def _global_f5_listener(self):
+        # Register F5 system-wide so it works even when Fortnite has focus.
+        try:
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+            self._hotkey_thread_id = kernel32.GetCurrentThreadId()
+            MOD_NOREPEAT = 0x4000
+            if not user32.RegisterHotKey(None, 0xA501, MOD_NOREPEAT, 0x74):
+                self.root.after(0, lambda: self.afk_status.set("Global F5 unavailable; another app may already use it."))
+                return
+            self._hotkey_ready.set()
+            msg = ctypes.wintypes.MSG()
+            while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+                if msg.message == 0x0312 and msg.wParam == 0xA501:  # WM_HOTKEY
+                    self.root.after(0, self.toggle_afk)
+                if self._closing:
+                    break
+            user32.UnregisterHotKey(None, 0xA501)
+        except Exception as exc:
+            self.root.after(0, lambda err=str(exc): self.afk_status.set("Global F5 error: " + err[:90]))
 
     def toggle_afk(self):
         if not self.license_key.get().strip():
@@ -634,7 +663,13 @@ class AzToolApp:
             time.sleep(POLL_SECONDS)
 
     def close(self):
+        self._closing = True
         self._polling = False
+        try:
+            if os.name == "nt" and self._hotkey_thread_id:
+                ctypes.windll.user32.PostThreadMessageW(self._hotkey_thread_id, 0x0012, 0, 0)  # WM_QUIT
+        except Exception:
+            pass
         self.radar_enabled = False
         try:
             if os.name == "nt":
