@@ -799,6 +799,7 @@ class AzToolApp:
             from PIL import Image, ImageEnhance, ImageOps
             import numpy as np
             import win32gui
+            import win32process
             ocr = RapidOCR()
         except ImportError:
             self.root.after(0, self.stop_radar)
@@ -808,8 +809,32 @@ class AzToolApp:
             try:
                 hwnd = win32gui.GetForegroundWindow()
                 title = win32gui.GetWindowText(hwnd).lower()
-                if "fortnite" not in title:
-                    self.root.after(0, lambda: self.radar_status.set("ON • Waiting for Fortnite to be the active window…"))
+                process_name = ""
+                try:
+                    _thread_id, process_id = win32process.GetWindowThreadProcessId(hwnd)
+                    process_handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, process_id)
+                    if process_handle:
+                        try:
+                            image_path = ctypes.create_unicode_buffer(1024)
+                            path_size = ctypes.wintypes.DWORD(len(image_path))
+                            if ctypes.windll.kernel32.QueryFullProcessImageNameW(
+                                process_handle, 0, image_path, ctypes.byref(path_size)
+                            ):
+                                process_name = os.path.basename(image_path.value).lower()
+                        finally:
+                            ctypes.windll.kernel32.CloseHandle(process_handle)
+                except Exception:
+                    process_name = ""
+
+                is_fortnite = "fortnite" in title or "fortniteclient" in process_name
+                if not is_fortnite:
+                    active_window = title[:45] or process_name or "unknown window"
+                    self.root.after(
+                        0,
+                        lambda name=active_window: self.radar_status.set(
+                            f"ON • Waiting for Fortnite. Active window: {name}"
+                        )
+                    )
                     time.sleep(POLL_SECONDS)
                     continue
 
