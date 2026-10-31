@@ -774,7 +774,7 @@ class AzToolApp:
 
                 # Retry only inside the same banner region; enlarged OCR
                 # coordinates are intentionally not mixed with original pixels.
-                if "spawned" not in normalized:
+                if not re.search(r"\\bspawned\\b", normalized):
                     enlarged = roi.resize((roi.width * 2, roi.height * 2), Image.Resampling.LANCZOS)
                     enhanced = ImageEnhance.Contrast(ImageOps.grayscale(enlarged)).enhance(2.0)
                     retry_detections, _retry_elapsed = ocr(np.array(enhanced))
@@ -782,12 +782,12 @@ class AzToolApp:
                     retry_text = " ".join(str(item[1]) for item in retry_words if len(item) > 1)
                     retry_normalized = re.sub(r"[^a-z0-9 ]", " ", retry_text.lower())
                     retry_normalized = re.sub(r"\s+", " ", retry_normalized).strip()
-                    if "spawned" in retry_normalized:
+                    if re.search(r"\\bspawned\\b", retry_normalized):
                         words = []
                         recognized = retry_text
                         normalized = retry_normalized
 
-                if "spawned" in normalized:
+                if re.search(r"\\bspawned\\b", normalized):
                     text_boxes = []
                     for item in words:
                         if len(item) < 2 or not str(item[1]).strip():
@@ -812,7 +812,7 @@ class AzToolApp:
                     crop_text = " ".join(str(item[1]) for item in (crop_detections or []) if len(item) > 1)
                     crop_normalized = re.sub(r"[^a-z0-9 ]", " ", crop_text.lower())
                     crop_normalized = re.sub(r"\s+", " ", crop_normalized).strip()
-                    if "spawned" not in crop_normalized:
+                    if not re.search(r"\\bspawned\\b", crop_normalized):
                         crop = roi
                         crop_text = recognized or "Spawned"
 
