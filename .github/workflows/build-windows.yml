@@ -42,6 +42,7 @@ jobs:
           --assume-yes-for-downloads
           --enable-plugin=tk-inter
           --include-package=rapidocr_onnxruntime
+          --include-package-data=rapidocr_onnxruntime
           --include-package=onnxruntime
           --include-data-files=assets/az-tool-icon.ico=az-tool-icon.ico
           --include-data-files=IMG_4552.jpg=IMG_4552.jpg
