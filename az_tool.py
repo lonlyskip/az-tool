@@ -497,7 +497,8 @@ class AzToolApp:
             )
             valid = not explicitly_invalid and (
                 result.get("valid") is True
-                if "valid" in result                else result.get("success") is True or result.get("active") is True
+                if "valid" in result
+                else result.get("success") is True or result.get("active") is True
             )
             expiry_value = result.get("expires_at") or result.get("expires") or self.state.get("expires_at")
             parsed_expiry = parse_expiry(expiry_value)
@@ -748,7 +749,8 @@ class AzToolApp:
                 self._polling = True
                 threading.Thread(target=self._poll_link_status, daemon=True).start()
             else:
-                self.root.after(0, lambda: self.link_status.set("Request was not accepted by the server."))                self.root.after(0, lambda: messagebox.showerror("Discord verification", result.get("error", "Request failed.")))
+                self.root.after(0, lambda: self.link_status.set("Request was not accepted by the server."))
+                self.root.after(0, lambda: messagebox.showerror("Discord verification", result.get("error", "Request failed.")))
         except Exception as exc:
             self.root.after(0, lambda: self.link_status.set("Could not reach the verification service."))
             self.root.after(0, lambda err=str(exc): messagebox.showerror("Connection", f"Verification request failed.\n\n{err}"))
@@ -768,7 +770,8 @@ class AzToolApp:
                     return
                 if status in ("rejected", "expired", "denied"):
                     self._link_verified = False
-                    self.root.after(0, lambda: self.link_status.set("Request rejected or expired. Submit a new request."))                    return
+                    self.root.after(0, lambda: self.link_status.set("Request rejected or expired. Submit a new request."))
+                    return
             except Exception:
                 pass
             time.sleep(4)
