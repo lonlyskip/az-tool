@@ -242,8 +242,23 @@ class AzToolApp:
         self._background_label.lower()
 
     def label(self, parent, text, color=TEXT, size=10, bold=False):
-        return tk.Label(parent, text=text, bg=parent["bg"], fg=color,
-                        font=("Segoe UI", size, "bold" if bold else "normal"))
+        widget = tk.Label(
+            parent, text=text, bg=parent["bg"], fg=color,
+            font=("Segoe UI", size, "bold" if bold else "normal"),
+            wraplength=520, justify="left", anchor="w"
+        )
+
+        # Keep long descriptions readable when the window is resized.
+        def update_wrap(event=None):
+            try:
+                available = max(220, parent.winfo_width() - 42)
+                widget.configure(wraplength=min(680, available))
+            except tk.TclError:
+                pass
+
+        parent.bind("<Configure>", update_wrap, add="+")
+        widget.bind("<Configure>", update_wrap, add="+")
+        return widget
 
     def card(self, parent, title, subtitle=None):
         frame = tk.Frame(parent, bg=PANEL, padx=18, pady=16,
