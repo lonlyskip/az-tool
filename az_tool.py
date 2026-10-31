@@ -943,6 +943,11 @@ class AzToolApp:
                 self.root.after(0, lambda e=str(exc): self.radar_status.set(f"ON • Radar warning: {e[:100]}"))
             time.sleep(POLL_SECONDS)
 
+        try:
+            sct.close()
+        except Exception:
+            pass
+
     def close(self):
         self._closing = True
         self._polling = False
