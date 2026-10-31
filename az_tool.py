@@ -770,7 +770,7 @@ class AzToolApp:
                 words = detections or []
                 recognized = " ".join(str(item[1]) for item in words if len(item) > 1)
                 normalized = re.sub(r"[^a-z0-9 ]", " ", recognized.lower())
-                normalized = re.sub(r"\\s+", " ", normalized).strip()
+                normalized = re.sub(r"\s+", " ", normalized).strip()
 
                 # Retry only inside the same banner region; enlarged OCR
                 # coordinates are intentionally not mixed with original pixels.
@@ -781,7 +781,7 @@ class AzToolApp:
                     retry_words = retry_detections or []
                     retry_text = " ".join(str(item[1]) for item in retry_words if len(item) > 1)
                     retry_normalized = re.sub(r"[^a-z0-9 ]", " ", retry_text.lower())
-                    retry_normalized = re.sub(r"\\s+", " ", retry_normalized).strip()
+                    retry_normalized = re.sub(r"\s+", " ", retry_normalized).strip()
                     if "spawned" in retry_normalized:
                         words = []
                         recognized = retry_text
@@ -811,12 +811,12 @@ class AzToolApp:
                     crop_detections, _ = ocr(np.array(crop))
                     crop_text = " ".join(str(item[1]) for item in (crop_detections or []) if len(item) > 1)
                     crop_normalized = re.sub(r"[^a-z0-9 ]", " ", crop_text.lower())
-                    crop_normalized = re.sub(r"\\s+", " ", crop_normalized).strip()
+                    crop_normalized = re.sub(r"\s+", " ", crop_normalized).strip()
                     if "spawned" not in crop_normalized:
                         crop = roi
                         crop_text = recognized or "Spawned"
 
-                    event_key = re.sub(r"\\s+", " ", (crop_text or recognized or "Spawned").lower()).strip()
+                    event_key = re.sub(r"\s+", " ", (crop_text or recognized or "Spawned").lower()).strip()
                     now = time.time()
                     if event_key != self._last_event_key or now - self._last_event_at > EVENT_COOLDOWN_SECONDS:
                         buffer = io.BytesIO()
