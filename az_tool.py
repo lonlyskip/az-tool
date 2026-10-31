@@ -247,8 +247,7 @@ class AzToolApp:
         self._background_label.configure(image=self._background_photo)
         self._background_label.lower()
 
-    def label(self, parent, text, color=TEXT, size=10, bold=False):
-        widget = tk.Label(
+    def label(self, parent, text, color=TEXT, size=10, bold=False):        widget = tk.Label(
             parent, text=text, bg=parent["bg"], fg=color,
             font=("Segoe UI", size, "bold" if bold else "normal"),
             wraplength=520, justify="left", anchor="w"
@@ -497,13 +496,13 @@ class AzToolApp:
             )
             valid = not explicitly_invalid and (
                 result.get("valid") is True
-                if "valid" in result
-                else result.get("success") is True or result.get("active") is True
+                if "valid" in result                else result.get("success") is True or result.get("active") is True
             )
             expiry_value = result.get("expires_at") or result.get("expires") or self.state.get("expires_at")
             parsed_expiry = parse_expiry(expiry_value)
             if not valid or not parsed_expiry or parsed_expiry <= datetime.now(timezone.utc):
-                self.root.after(0, self._handle_expired_subscription)                return
+                self.root.after(0, self._handle_expired_subscription)
+                return
             self.state["license_key"] = key
             self.state["expires_at"] = parsed_expiry.isoformat()
             save_state(self.state)
@@ -579,6 +578,7 @@ class AzToolApp:
                 self.root.after(0, lambda: self.expiry.set(parsed_expiry.strftime("%Y-%m-%d %H:%M UTC")))
                 self.root.after(0, self.license_card.pack_forget)
                 self.root.after(0, self._show_gated_sections)
+                self.root.after(0, self._resume_saved_discord_link)
             else:
                 self.state.pop("license_key", None)
                 self.state.pop("expires_at", None)
@@ -747,8 +747,7 @@ class AzToolApp:
                 self._polling = True
                 threading.Thread(target=self._poll_link_status, daemon=True).start()
             else:
-                self.root.after(0, lambda: self.link_status.set("Request was not accepted by the server."))
-                self.root.after(0, lambda: messagebox.showerror("Discord verification", result.get("error", "Request failed.")))
+                self.root.after(0, lambda: self.link_status.set("Request was not accepted by the server."))                self.root.after(0, lambda: messagebox.showerror("Discord verification", result.get("error", "Request failed.")))
         except Exception as exc:
             self.root.after(0, lambda: self.link_status.set("Could not reach the verification service."))
             self.root.after(0, lambda err=str(exc): messagebox.showerror("Connection", f"Verification request failed.\n\n{err}"))
