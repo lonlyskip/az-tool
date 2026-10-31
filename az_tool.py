@@ -315,13 +315,13 @@ class AzToolApp:
         self.afk_status = tk.StringVar(value="AFK is OFF.")
         tk.Label(self.afk_card, textvariable=self.afk_status, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(8, 0))
 
-        self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • Full-screen detection")
+        self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • Notification-area detection")
         radar_card = self.radar_card
         self.radar_button = self.button(radar_card, "START RADAR", self.toggle_radar, color=GREEN, fg="#07110d")
         self.radar_button.pack(fill="x")
         tk.Label(radar_card, textvariable=self.radar_status, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
-        self.label(radar_card, "Scans the full primary screen for any visible notification containing Spawned and sends it to Discord.", MUTED, 9).pack(anchor="w", pady=(5, 0))
+        self.label(radar_card, "Scans the full primary screen for the game notification area for Spawn or Spawned and sends it to Discord.", MUTED, 9).pack(anchor="w", pady=(5, 0))
 
 
         self.discord_card.pack_forget()
@@ -727,7 +727,7 @@ class AzToolApp:
         self.radar_status.set("OFF • Radar stopped. No screen monitoring is active.")
 
     def _radar_loop(self):
-        """Watch only the lower-center Spawned banner on the primary display."""
+        """Watch only the lower-center Spawn/Spawned notification on the primary display."""
         try:
             import mss
             from rapidocr_onnxruntime import RapidOCR
@@ -774,7 +774,7 @@ class AzToolApp:
 
                 # Retry only inside the same banner region; enlarged OCR
                 # coordinates are intentionally not mixed with original pixels.
-                if not re.search(r"\\bspawned\\b", normalized):
+                if not re.search(r"\\bspawn(?:ed)?\\b", normalized):
                     enlarged = roi.resize((roi.width * 2, roi.height * 2), Image.Resampling.LANCZOS)
                     enhanced = ImageEnhance.Contrast(ImageOps.grayscale(enlarged)).enhance(2.0)
                     retry_detections, _retry_elapsed = ocr(np.array(enhanced))
@@ -782,12 +782,12 @@ class AzToolApp:
                     retry_text = " ".join(str(item[1]) for item in retry_words if len(item) > 1)
                     retry_normalized = re.sub(r"[^a-z0-9 ]", " ", retry_text.lower())
                     retry_normalized = re.sub(r"\s+", " ", retry_normalized).strip()
-                    if re.search(r"\\bspawned\\b", retry_normalized):
+                    if re.search(r"\\bspawn(?:ed)?\\b", retry_normalized):
                         words = []
                         recognized = retry_text
                         normalized = retry_normalized
 
-                if re.search(r"\\bspawned\\b", normalized):
+                if re.search(r"\\bspawn(?:ed)?\\b", normalized):
                     text_boxes = []
                     for item in words:
                         if len(item) < 2 or not str(item[1]).strip():
@@ -812,7 +812,7 @@ class AzToolApp:
                     crop_text = " ".join(str(item[1]) for item in (crop_detections or []) if len(item) > 1)
                     crop_normalized = re.sub(r"[^a-z0-9 ]", " ", crop_text.lower())
                     crop_normalized = re.sub(r"\s+", " ", crop_normalized).strip()
-                    if not re.search(r"\\bspawned\\b", crop_normalized):
+                    if not re.search(r"\\bspawn(?:ed)?\\b", crop_normalized):
                         crop = roi
                         crop_text = recognized or "Spawned"
 
@@ -840,7 +840,7 @@ class AzToolApp:
                         buffer.close()
                         time.sleep(EVENT_COOLDOWN_SECONDS)
                 else:
-                    self.root.after(0, lambda: self.radar_status.set("ON • Watching lower-center Spawned banner…"))
+                    self.root.after(0, lambda: self.radar_status.set("ON • Watching lower-center Spawn/Spawned notification…"))
             except Exception as exc:
                 self.root.after(0, lambda e=str(exc): self.radar_status.set(f"ON • Radar warning: {e[:100]}"))
             time.sleep(POLL_SECONDS)
