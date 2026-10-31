@@ -55,13 +55,13 @@ jobs:
           if (-not (Test-Path "az_tool.dist/az tool.exe")) {
             throw "Standalone executable was not created."
           }
-          Compress-Archive -Path "az_tool.dist/*" -DestinationPath "az-tool-windows.zip" -CompressionLevel Optimal
+          Compress-Archive -Path "az_tool.dist/*" -DestinationPath "az-tool.zip" -CompressionLevel Optimal
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: az-tool-windows
-          path: "az-tool-windows.zip"
+          name: az-tool
+          path: "az-tool.zip"
           if-no-files-found: error
           retention-days: 14
 
@@ -71,4 +71,4 @@ jobs:
         shell: pwsh
         run: |
           $tag = "az-tool-build-${{ github.run_number }}"
-          gh release create $tag "az-tool-windows.zip" --title "az Tool Windows build ${{ github.run_number }}" --notes "Standalone Windows package. Download and extract az-tool-windows.zip, then run az tool.exe. This build avoids the single-file self-extracting bundle format; antivirus warnings are not guaranteed to disappear."
+          gh release create $tag "az-tool.zip" --title "az Tool Windows build ${{ github.run_number }}" --notes "Standalone Windows package. Download and extract az-tool.zip, then run az tool.exe. This build avoids the single-file self-extracting bundle format; antivirus warnings are not guaranteed to disappear."
