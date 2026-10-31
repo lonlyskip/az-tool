@@ -782,9 +782,14 @@ class AzToolApp:
             return
         self.radar_enabled = True
         self.radar_button.config(text="STOP RADAR", bg=RED, fg="white")
-        self.radar_status.set("ON • Waiting for Fortnite notification…")
+        self.radar_status.set("ON • Initializing OCR engine…")
         self._radar_thread = threading.Thread(target=self._radar_loop, daemon=True)
         self._radar_thread.start()
+
+    def _radar_startup_failed(self, message):
+        self.radar_enabled = False
+        self.radar_button.config(text="START RADAR", bg=GREEN, fg="#07110d")
+        self.radar_status.set(f"OFF • Radar startup error: {message[:140]}")
 
     def stop_radar(self):
         self.radar_enabled = False
@@ -801,8 +806,10 @@ class AzToolApp:
             import win32gui
             import win32process
             ocr = RapidOCR()
-        except ImportError:
-            self.root.after(0, self.stop_radar)
+        except Exception as exc:
+            # Surface initialization failures instead of leaving the UI stuck on "Waiting".
+            message = f"{type(exc).__name__}: {exc}"
+            self.root.after(0, lambda msg=message: self._radar_startup_failed(msg))
             return
 
         while self.radar_enabled:
