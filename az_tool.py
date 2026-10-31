@@ -23,8 +23,8 @@ LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "az tool")
 STATE_FILE = os.path.join(APP_DIR, "state.json")
 # Scan the entire primary display so Spawned notifications are not missed by a fixed ROI.
-POLL_SECONDS = 0.45
-EVENT_COOLDOWN_SECONDS = 3.0
+POLL_SECONDS = 0.25
+EVENT_COOLDOWN_SECONDS = 1.5
 
 BG = "#0b0d12"
 PANEL = "#131722"
@@ -855,7 +855,7 @@ class AzToolApp:
                     region_width = max(1, int(screen_width * 0.64))
                     region_height = max(1, int(screen_height * 0.25))
                     region = {
-                        "left": int(monitor["left"] + (screen_width - region_width) // 2),
+                        "left": int(monitor["left"] + (screen_width - region_width) // 2 + screen_width * 0.05),
                         "top": int(monitor["top"] + screen_height * 0.70),
                         "width": region_width,
                         "height": region_height,
@@ -945,7 +945,6 @@ class AzToolApp:
                             err = result.get("error", "Server rejected the event")
                             self.root.after(0, lambda msg=err: self.radar_status.set(f"ON • Discord delivery failed: {msg[:90]}"))
                         buffer.close()
-                        time.sleep(EVENT_COOLDOWN_SECONDS)
             except Exception as exc:
                 self.root.after(0, lambda e=str(exc): self.radar_status.set(f"ON • Radar warning: {e[:100]}"))
             time.sleep(POLL_SECONDS)
