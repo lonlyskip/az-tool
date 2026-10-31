@@ -364,7 +364,7 @@ class AzToolApp:
         self.afk_status = tk.StringVar(value="AFK is OFF.")
         tk.Label(self.afk_card, textvariable=self.afk_status, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(8, 0))
 
-        self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Roblox • Go Up for Brainrot • Notification-area detection")
+        self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • Notification-area detection")
         radar_card = self.radar_card
         self.radar_button = self.button(radar_card, "START RADAR", self.toggle_radar, color=GREEN, fg="#07110d")
         self.radar_button.pack(fill="x")
@@ -380,7 +380,7 @@ class AzToolApp:
 
         footer = tk.Frame(self.root, bg=BG)
         footer.pack(fill="x", padx=28, pady=(10, 18))
-        self.label(footer, "License validation • Roblox must be the active window • Screen image sent only when Spawn is detected", MUTED, 8).pack(anchor="w")
+        self.label(footer, "License validation • Foreground Fortnite window required • Screen image sent only when Spawn is detected", MUTED, 8).pack(anchor="w")
         if self.license_key.get().strip():
             self.status.set("Saved key loaded — activate to validate")
         self.root.after(1000, self._refresh_link_state)
@@ -766,7 +766,7 @@ class AzToolApp:
             return
         self.radar_enabled = True
         self.radar_button.config(text="STOP RADAR", bg=RED, fg="white")
-        self.radar_status.set("ON • Waiting for Roblox notification…")
+        self.radar_status.set("ON • Waiting for Fortnite notification…")
         self._radar_thread = threading.Thread(target=self._radar_loop, daemon=True)
         self._radar_thread.start()
 
@@ -792,8 +792,8 @@ class AzToolApp:
             try:
                 hwnd = win32gui.GetForegroundWindow()
                 title = win32gui.GetWindowText(hwnd).lower()
-                if "roblox" not in title:
-                    self.root.after(0, lambda: self.radar_status.set("ON • Waiting for Roblox to be the active window…"))
+                if "fortnite" not in title:
+                    self.root.after(0, lambda: self.radar_status.set("ON • Waiting for Fortnite to be the active window…"))
                     time.sleep(POLL_SECONDS)
                     continue
 
