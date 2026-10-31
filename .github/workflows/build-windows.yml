@@ -36,9 +36,9 @@ jobs:
       - name: Generate application icon
         run: python make_icon.py
 
-      - name: Compile Windows application
+      - name: Compile Windows application (standalone)
         run: >-
-          python -m nuitka --mode=onefile --windows-console-mode=disable
+          python -m nuitka --mode=standalone --windows-console-mode=disable
           --assume-yes-for-downloads
           --enable-plugin=tk-inter
           --include-package=rapidocr_onnxruntime
@@ -49,11 +49,19 @@ jobs:
           --output-filename="az tool.exe"
           az_tool.py
 
+      - name: Package standalone application
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "az tool.dist/az tool.exe")) {
+            throw "Standalone executable was not created."
+          }
+          Compress-Archive -Path "az tool.dist/*" -DestinationPath "az-tool-windows.zip" -CompressionLevel Optimal
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: az-tool-windows
-          path: "az tool.exe"
+          path: "az-tool-windows.zip"
           if-no-files-found: error
           retention-days: 14
 
@@ -63,4 +71,4 @@ jobs:
         shell: pwsh
         run: |
           $tag = "az-tool-build-${{ github.run_number }}"
-          gh release create $tag "az tool.exe" --title "az Tool Windows build ${{ github.run_number }}" --notes "Automatically built from branch az-tool-rebuild. Download az tool.exe and run it on Windows."
+          gh release create $tag "az-tool-windows.zip" --title "az Tool Windows build ${{ github.run_number }}" --notes "Standalone Windows package. Download and extract az-tool-windows.zip, then run az tool.exe. This build avoids the single-file self-extracting bundle format; antivirus warnings are not guaranteed to disappear."
