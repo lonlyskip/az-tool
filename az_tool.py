@@ -825,7 +825,7 @@ class AzToolApp:
                 now_status = time.time()
                 if now_status - self._last_ocr_status_at >= 2.0:
                     self._last_ocr_status_at = now_status
-                    debug_text = re.sub(r"\\s+", " ", recognized).strip()
+                    debug_text = re.sub(r"\s+", " ", recognized).strip()
                     if not debug_text:
                         debug_text = "no text recognized in notification area"
                     debug_text = debug_text[:75]
@@ -899,8 +899,6 @@ class AzToolApp:
                             self.root.after(0, lambda msg=err: self.radar_status.set(f"ON • Discord delivery failed: {msg[:90]}"))
                         buffer.close()
                         time.sleep(EVENT_COOLDOWN_SECONDS)
-                else:
-                    self.root.after(0, lambda: self.radar_status.set("ON • Watching lower-center Spawn/Spawned notification…"))
             except Exception as exc:
                 self.root.after(0, lambda e=str(exc): self.radar_status.set(f"ON • Radar warning: {e[:100]}"))
             time.sleep(POLL_SECONDS)
