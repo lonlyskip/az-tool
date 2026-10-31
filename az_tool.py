@@ -174,6 +174,7 @@ class AzToolApp:
         self._radar_thread = None
         self._last_event_key = None
         self._last_event_at = 0.0
+        self._last_ocr_status_at = 0.0
         self._last_license_check = 0.0
         self._license_check_in_progress = False
         self._subscription_expired = False
@@ -370,7 +371,7 @@ class AzToolApp:
         self.radar_button.pack(fill="x")
         tk.Label(radar_card, textvariable=self.radar_status, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
-        self.label(radar_card, "Scans the full primary screen for the game notification area for Spawn or Spawned and sends it to Discord.", MUTED, 9).pack(anchor="w", pady=(5, 0))
+        self.label(radar_card, "Shows live OCR text from the notification area. Server acceptance and Discord delivery are reported separately.", MUTED, 9).pack(anchor="w", pady=(5, 0))
 
 
         self.discord_card.pack_forget()
@@ -821,6 +822,15 @@ class AzToolApp:
                 normalized = re.sub(r"[^a-z0-9 ]", " ", recognized.lower())
                 normalized = re.sub(r"\s+", " ", normalized).strip()
 
+                now_status = time.time()
+                if now_status - self._last_ocr_status_at >= 2.0:
+                    self._last_ocr_status_at = now_status
+                    debug_text = re.sub(r"\\s+", " ", recognized).strip()
+                    if not debug_text:
+                        debug_text = "no text recognized in notification area"
+                    debug_text = debug_text[:75]
+                    self.root.after(0, lambda msg=debug_text: self.radar_status.set(f"ON • OCR reading: {msg}"))
+
                 # Retry only inside the same banner region; enlarged OCR
                 # coordinates are intentionally not mixed with original pixels.
                 if not re.search(r"\bspawn(?:ed)?\b", normalized):
@@ -868,6 +878,7 @@ class AzToolApp:
                     event_key = re.sub(r"\s+", " ", (crop_text or recognized or "Spawned").lower()).strip()
                     now = time.time()
                     if event_key != self._last_event_key or now - self._last_event_at > EVENT_COOLDOWN_SECONDS:
+                        self.root.after(0, lambda msg=event_key[:65]: self.radar_status.set(f"ON • SPAWN DETECTED: {msg} • Uploading…"))
                         buffer = io.BytesIO()
                         crop.save(buffer, format="PNG")
                         image_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
@@ -882,7 +893,7 @@ class AzToolApp:
                         }, timeout=15)
                         if result.get("ok"):
                             self._last_event_key, self._last_event_at = event_key, now
-                            self.root.after(0, lambda: self.radar_status.set("ON • Spawn detected and sent to your linked Discord account."))
+                            self.root.after(0, lambda: self.radar_status.set("ON • Server accepted event; Discord bot delivery is a separate step."))
                         else:
                             err = result.get("error", "Server rejected the event")
                             self.root.after(0, lambda msg=err: self.radar_status.set(f"ON • Discord delivery failed: {msg[:90]}"))
