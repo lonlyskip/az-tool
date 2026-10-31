@@ -23,7 +23,7 @@ LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "az tool")
 STATE_FILE = os.path.join(APP_DIR, "state.json")
 # Scan the entire primary display so Spawned notifications are not missed by a fixed ROI.
-POLL_SECONDS = 0.25
+POLL_SECONDS = 0.50
 EVENT_COOLDOWN_SECONDS = 1.5
 
 BG = "#0b0d12"
@@ -812,6 +812,15 @@ class AzToolApp:
             self.root.after(0, lambda msg=message: self._radar_startup_failed(msg))
             return
 
+        # Keep one capture handle for the lifetime of the radar thread.
+        # Recreating MSS on every pass adds avoidable overhead while Fortnite is rendering.
+        try:
+            sct = mss.mss()
+        except Exception as exc:
+            message = f"{type(exc).__name__}: {exc}"
+            self.root.after(0, lambda msg=message: self._radar_startup_failed(msg))
+            return
+
         while self.radar_enabled:
             try:
                 hwnd = win32gui.GetForegroundWindow()
@@ -845,24 +854,25 @@ class AzToolApp:
                     time.sleep(POLL_SECONDS)
                     continue
 
-                with mss.mss() as sct:
-                    # The banner in the supplied game screenshot is centered near
-                    # the bottom. Use a resolution-relative ROI so other UI text
-                    # and unrelated desktop areas are not scanned or uploaded.
-                    monitor = sct.monitors[1]
-                    screen_width = int(monitor["width"])
-                    screen_height = int(monitor["height"])
-                    region_width = max(1, int(screen_width * 0.64))
-                    region_height = max(1, int(screen_height * 0.25))
-                    region = {
-                        "left": int(monitor["left"] + (screen_width - region_width) // 2 + screen_width * 0.05),
-                        "top": int(monitor["top"] + screen_height * 0.70),
-                        "width": region_width,
-                        "height": region_height,
-                    }
-                    shot = sct.grab(region)
-                    roi = Image.frombytes("RGB", shot.size, shot.rgb)
+                # Capture only the notification strip. The ROI is shifted right,
+                # but remains fully inside the display bounds.
+                monitor = sct.monitors[1]
+                screen_width = int(monitor["width"])
+                screen_height = int(monitor["height"])
+                region_width = max(1, int(screen_width * 0.64))
+                region_height = max(1, int(screen_height * 0.25))
+                left = int(monitor["left"] + (screen_width - region_width) // 2 + screen_width * 0.05)
+                left = max(int(monitor["left"]), min(left, int(monitor["left"] + screen_width - region_width)))
+                region = {
+                    "left": left,
+                    "top": int(monitor["top"] + screen_height * 0.70),
+                    "width": region_width,
+                    "height": region_height,
+                }
+                shot = sct.grab(region)
+                roi = Image.frombytes("RGB", shot.size, shot.rgb)
 
+                # One OCR pass per frame keeps CPU use predictable during gameplay.
                 detections, _elapsed = ocr(np.array(roi))
                 words = detections or []
                 recognized = " ".join(str(item[1]) for item in words if len(item) > 1)
@@ -878,20 +888,8 @@ class AzToolApp:
                     debug_text = debug_text[:75]
                     self.root.after(0, lambda msg=debug_text: self.radar_status.set(f"ON • OCR reading: {msg}"))
 
-                # Retry only inside the same banner region; enlarged OCR
-                # coordinates are intentionally not mixed with original pixels.
-                if not re.search(r"\bspawn(?:ed)?\b", normalized):
-                    enlarged = roi.resize((roi.width * 2, roi.height * 2), Image.Resampling.LANCZOS)
-                    enhanced = ImageEnhance.Contrast(ImageOps.grayscale(enlarged)).enhance(2.0)
-                    retry_detections, _retry_elapsed = ocr(np.array(enhanced))
-                    retry_words = retry_detections or []
-                    retry_text = " ".join(str(item[1]) for item in retry_words if len(item) > 1)
-                    retry_normalized = re.sub(r"[^a-z0-9 ]", " ", retry_text.lower())
-                    retry_normalized = re.sub(r"\s+", " ", retry_normalized).strip()
-                    if re.search(r"\bspawn(?:ed)?\b", retry_normalized):
-                        words = []
-                        recognized = retry_text
-                        normalized = retry_normalized
+                # Do not run a second enlarged OCR pass on every frame:
+                # that was a major source of CPU spikes and Fortnite stutter.
 
                 if re.search(r"\bspawn(?:ed)?\b", normalized):
                     text_boxes = []
@@ -914,13 +912,9 @@ class AzToolApp:
                         # to a 2x image, so send the original banner ROI only.
                         crop = roi
 
-                    crop_detections, _ = ocr(np.array(crop))
-                    crop_text = " ".join(str(item[1]) for item in (crop_detections or []) if len(item) > 1)
-                    crop_normalized = re.sub(r"[^a-z0-9 ]", " ", crop_text.lower())
-                    crop_normalized = re.sub(r"\s+", " ", crop_normalized).strip()
-                    if not re.search(r"\bspawn(?:ed)?\b", crop_normalized):
-                        crop = roi
-                        crop_text = recognized or "Spawned"
+                    # Reuse the already captured notification strip; no third OCR pass.
+                    crop = roi
+                    crop_text = recognized or "Spawned"
 
                     event_key = re.sub(r"\s+", " ", (crop_text or recognized or "Spawned").lower()).strip()
                     now = time.time()
