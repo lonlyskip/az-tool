@@ -16,6 +16,7 @@ from tkinter import messagebox
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone
+from PIL import Image, ImageEnhance, ImageTk
 
 APP_NAME = "az tool"
 LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
@@ -137,6 +138,11 @@ class AzToolApp:
         self.root.geometry("620x720")
         self.root.minsize(580, 680)
         self.root.configure(bg=BG)
+        self._background_original = None
+        self._background_photo = None
+        self._background_label = None
+        self._background_resize_job = None
+        self._setup_background()
         # Force the native Windows caption/title bar into dark mode.
         self.root.update_idletasks()
         if os.name == "nt":
@@ -190,6 +196,49 @@ class AzToolApp:
         if os.name == "nt":
             self._hotkey_thread = threading.Thread(target=self._global_f5_listener, daemon=True)
             self._hotkey_thread.start()
+
+    def _setup_background(self):
+        """Load the bundled Nexora artwork as a dark, full-window background."""
+        base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        image_path = os.path.join(base_dir, "IMG_4552.jpg")
+        try:
+            self._background_original = Image.open(image_path).convert("RGB")
+            self._background_label = tk.Label(self.root, bd=0, highlightthickness=0, bg=BG)
+            self._background_label.place(x=0, y=0, relwidth=1, relheight=1)
+            self._background_label.lower()
+            self.root.bind("<Configure>", self._on_background_resize, add="+")
+            self.root.after(80, self._render_background)
+        except (OSError, tk.TclError):
+            # Keep the normal dark interface if the optional artwork cannot be loaded.
+            self._background_original = None
+
+    def _on_background_resize(self, event):
+        if event.widget is not self.root or self._background_original is None:
+            return
+        if self._background_resize_job is not None:
+            self.root.after_cancel(self._background_resize_job)
+        self._background_resize_job = self.root.after(100, self._render_background)
+
+    def _render_background(self):
+        self._background_resize_job = None
+        if self._background_original is None or self._background_label is None:
+            return
+        width = max(1, self.root.winfo_width())
+        height = max(1, self.root.winfo_height())
+        source = self._background_original
+        scale = max(width / source.width, height / source.height)
+        resized = source.resize(
+            (max(width, int(source.width * scale)), max(height, int(source.height * scale))),
+            Image.Resampling.LANCZOS,
+        )
+        left = (resized.width - width) // 2
+        top = (resized.height - height) // 2
+        resized = resized.crop((left, top, left + width, top + height))
+        # Darken the artwork so the existing labels, cards, and controls stay readable.
+        resized = ImageEnhance.Brightness(resized).enhance(0.42)
+        self._background_photo = ImageTk.PhotoImage(resized)
+        self._background_label.configure(image=self._background_photo)
+        self._background_label.lower()
 
     def label(self, parent, text, color=TEXT, size=10, bold=False):
         return tk.Label(parent, text=text, bg=parent["bg"], fg=color,
