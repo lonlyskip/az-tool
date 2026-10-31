@@ -247,7 +247,8 @@ class AzToolApp:
         self._background_label.configure(image=self._background_photo)
         self._background_label.lower()
 
-    def label(self, parent, text, color=TEXT, size=10, bold=False):        widget = tk.Label(
+    def label(self, parent, text, color=TEXT, size=10, bold=False):
+        widget = tk.Label(
             parent, text=text, bg=parent["bg"], fg=color,
             font=("Segoe UI", size, "bold" if bold else "normal"),
             wraplength=520, justify="left", anchor="w"
