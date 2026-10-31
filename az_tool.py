@@ -163,7 +163,7 @@ class AzToolApp:
         except (tk.TclError, OSError):
             pass
         self.state = load_state()
-        self.license_key = tk.StringVar(value="")
+        self.license_key = tk.StringVar(value=str(self.state.get("license_key", "")).strip())
         self.discord_id = tk.StringVar(value=self.state.get("discord_id", ""))
         self.status = tk.StringVar(value="Not activated")
         self.link_status = tk.StringVar(value="Discord account not linked")
@@ -189,11 +189,17 @@ class AzToolApp:
         self._hotkey_ready = threading.Event()
         self._closing = False
         self._build()
-        # Always start at the activation screen; a cached key never bypasses validation.
+        # A saved key is never trusted locally: validate it with the license server on every launch.
         self.state.pop("discord_skipped", None)
         save_state(self.state)
-        self.license_card.pack(fill="x", padx=24, pady=8)
-        self.status.set("Enter your license key to activate")
+        saved_key = self.license_key.get().strip()
+        if saved_key:
+            self.license_card.pack_forget()
+            self.status.set("Restoring saved session…")
+            self.root.after(150, self.check_subscription)
+        else:
+            self.license_card.pack(fill="x", padx=24, pady=8)
+            self.status.set("Enter your license key to activate")
         if os.name == "nt":
             self._hotkey_thread = threading.Thread(target=self._global_f5_listener, daemon=True)
             self._hotkey_thread.start()
@@ -247,7 +253,6 @@ class AzToolApp:
             font=("Segoe UI", size, "bold" if bold else "normal"),
             wraplength=520, justify="left", anchor="w"
         )
-
         # Keep long descriptions readable when the window is resized.
         def update_wrap(event=None):
             try:
@@ -448,6 +453,7 @@ class AzToolApp:
                 self.root.after(0, self.license_card.pack_forget)
                 self.root.after(0, lambda: self.expiry.set(parsed_expiry.strftime("%Y-%m-%d %H:%M UTC")))
                 self.root.after(0, self._show_gated_sections)
+                self.root.after(0, self._resume_saved_discord_link)
             else:
                 self.state.pop("license_key", None)
                 self.state.pop("expires_at", None)
@@ -497,8 +503,7 @@ class AzToolApp:
             expiry_value = result.get("expires_at") or result.get("expires") or self.state.get("expires_at")
             parsed_expiry = parse_expiry(expiry_value)
             if not valid or not parsed_expiry or parsed_expiry <= datetime.now(timezone.utc):
-                self.root.after(0, self._handle_expired_subscription)
-                return
+                self.root.after(0, self._handle_expired_subscription)                return
             self.state["license_key"] = key
             self.state["expires_at"] = parsed_expiry.isoformat()
             save_state(self.state)
@@ -585,7 +590,23 @@ class AzToolApp:
                 self.root.after(0, lambda: messagebox.showerror("الاشتراك", "الاشتراك منتهي أو ملغي. أدخل كودًا صالحًا للتفعيل."))
         except Exception:
             self.root.after(0, lambda: self.status.set("Could not verify subscription"))
+            self.root.after(0, lambda: self.license_card.pack(fill="x", padx=24, pady=8))
             self.root.after(0, lambda: messagebox.showerror("الاشتراك", "تعذر التحقق الآن. لم يتم اعتبار الاشتراك صالحًا بناءً على هذا الفحص."))
+    def _resume_saved_discord_link(self):
+        """Restore Discord verification only after the saved license passes server validation."""
+        discord_id = str(self.state.get("discord_id", "")).strip()
+        if not discord_id or self._link_verified or self._subscription_expired:
+            return
+        request_id = self.state.get("link_request_id")
+        if request_id:
+            self._polling = True
+            self.link_status.set("Restoring Discord verification…")
+            threading.Thread(target=self._poll_link_status, daemon=True).start()
+        else:
+            # The server confirms whether this Discord account is already linked.
+            self.discord_id.set(discord_id)
+            self.request_link()
+
     def skip_discord(self):
         self._discord_skipped = True
         self.state["discord_skipped"] = True
@@ -747,8 +768,7 @@ class AzToolApp:
                     return
                 if status in ("rejected", "expired", "denied"):
                     self._link_verified = False
-                    self.root.after(0, lambda: self.link_status.set("Request rejected or expired. Submit a new request."))
-                    return
+                    self.root.after(0, lambda: self.link_status.set("Request rejected or expired. Submit a new request."))                    return
             except Exception:
                 pass
             time.sleep(4)
