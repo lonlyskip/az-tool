@@ -177,6 +177,7 @@ class AzToolApp:
         self._last_ocr_status_at = 0.0
         self._last_license_check = 0.0
         self._license_check_in_progress = False
+        self._activation_in_progress = False
         self._subscription_expired = False
         self._link_verified = False
         self._discord_skipped = False
@@ -405,7 +406,7 @@ class AzToolApp:
         if self.license_key.get().strip():
             self.status.set("Saved key loaded — activate to validate")
         self.root.after(1000, self._refresh_link_state)
-        self.root.after(1000, self._schedule_subscription_check)
+        self.root.after(30000, self._schedule_subscription_check)
 
     def _show_gated_sections(self):
         if not self._link_verified and not self._discord_skipped:
@@ -435,6 +436,8 @@ class AzToolApp:
         if not key:
             messagebox.showerror("License", "Enter your license key first.")
             return
+        self._activation_in_progress = True
+        self._subscription_expired = False
         self.status.set("Checking license…")
         threading.Thread(target=self._activate_worker, args=(key,), daemon=True).start()
 
@@ -446,6 +449,7 @@ class AzToolApp:
                 parsed_expiry = parse_expiry(expiry_value)
                 if not parsed_expiry or parsed_expiry <= datetime.now(timezone.utc):
                     raise RuntimeError("License server did not return a future expiry time.")
+                self._subscription_expired = False
                 self.state["license_key"] = key
                 self.state["expires_at"] = parsed_expiry.isoformat()
                 save_state(self.state)
@@ -454,6 +458,7 @@ class AzToolApp:
                 self.root.after(0, lambda: self.expiry.set(parsed_expiry.strftime("%Y-%m-%d %H:%M UTC")))
                 self.root.after(0, self._show_gated_sections)
                 self.root.after(0, self._resume_saved_discord_link)
+                self.root.after(0, lambda: setattr(self, "_activation_in_progress", False))
             else:
                 self.state.pop("license_key", None)
                 self.state.pop("expires_at", None)
@@ -463,14 +468,16 @@ class AzToolApp:
                 self.root.after(0, self.license_card.pack)
                 self.root.after(0, self._hide_gated_sections)
                 self.root.after(0, lambda: messagebox.showerror("فشل التفعيل", arabic_error(result.get("error", "Activation was rejected."))))
+                self.root.after(0, lambda: setattr(self, "_activation_in_progress", False))
         except Exception as exc:
             self.root.after(0, lambda: self.status.set("Server unavailable"))
             self.root.after(0, self._hide_gated_sections)
             self.root.after(0, lambda err=str(exc): messagebox.showerror("Connection", f"Could not contact the license server.\n\n{err}"))
+            self.root.after(0, lambda: setattr(self, "_activation_in_progress", False))
 
     def _schedule_subscription_check(self):
         """Check the subscription every second without overlapping requests."""
-        if self._closing or self._subscription_expired:
+        if self._closing or self._subscription_expired or self._activation_in_progress:
             return
         key = self.license_key.get().strip()
         if key and not self._license_check_in_progress:
@@ -521,7 +528,7 @@ class AzToolApp:
             self._license_check_in_progress = False
 
     def _handle_expired_subscription(self):
-        if self._subscription_expired or self._closing:
+        if self._subscription_expired or self._closing or self._activation_in_progress:
             return
         self._subscription_expired = True
         self._polling = False
@@ -779,7 +786,10 @@ class AzToolApp:
     def _refresh_link_state(self):
         # Enforce expiry locally; the automatic checker also validates with the server.
         cached_expiry = parse_expiry(self.state.get("expires_at"))
-        if self.state.get("license_key") and (not cached_expiry or cached_expiry <= datetime.now(timezone.utc)):
+        current_key = self.license_key.get().strip()
+        saved_key = str(self.state.get("license_key", "")).strip()
+        if (not self._activation_in_progress and saved_key and current_key == saved_key
+                and (not cached_expiry or cached_expiry <= datetime.now(timezone.utc))):
             self.root.after(0, self._handle_expired_subscription)
         # Radar cannot be started merely because an ID was typed; server approval is required.
         if self.radar_enabled and (not self.license_key.get().strip() or not self._link_verified):
