@@ -727,16 +727,18 @@ class AzToolApp:
         self.radar_status.set("OFF • Radar stopped. No screen monitoring is active.")
 
     def _radar_loop(self):
+        """Watch only the lower-center Spawned banner on the primary display."""
         try:
             import mss
             from rapidocr_onnxruntime import RapidOCR
-            from PIL import Image
+            from PIL import Image, ImageEnhance, ImageOps
             import numpy as np
             import win32gui
             ocr = RapidOCR()
         except ImportError:
             self.root.after(0, self.stop_radar)
             return
+
         while self.radar_enabled:
             try:
                 hwnd = win32gui.GetForegroundWindow()
@@ -745,47 +747,47 @@ class AzToolApp:
                     self.root.after(0, lambda: self.radar_status.set("ON • Waiting for Fortnite to be the active window…"))
                     time.sleep(POLL_SECONDS)
                     continue
+
                 with mss.mss() as sct:
-                    monitor = sct.monitors[0]  # Entire virtual desktop across all connected displays
+                    # The banner in the supplied game screenshot is centered near
+                    # the bottom. Use a resolution-relative ROI so other UI text
+                    # and unrelated desktop areas are not scanned or uploaded.
+                    monitor = sct.monitors[1]
                     screen_width = int(monitor["width"])
                     screen_height = int(monitor["height"])
-                    # Full virtual-desktop capture across all connected displays, including all corners.
+                    region_width = max(1, int(screen_width * 0.64))
+                    region_height = max(1, int(screen_height * 0.25))
                     region = {
-                        "left": int(monitor["left"]),
-                        "top": int(monitor["top"]),
-                        "width": screen_width,
-                        "height": screen_height,
+                        "left": int(monitor["left"] + (screen_width - region_width) // 2),
+                        "top": int(monitor["top"] + screen_height * 0.70),
+                        "width": region_width,
+                        "height": region_height,
                     }
                     shot = sct.grab(region)
-                    image = Image.frombytes("RGB", shot.size, shot.rgb)
-                # Read the notification area. If small text is missed, retry enlarged
-                # and high-contrast while keeping all processing in memory.
-                detections, _elapsed = ocr(np.array(image))
+                    roi = Image.frombytes("RGB", shot.size, shot.rgb)
+
+                detections, _elapsed = ocr(np.array(roi))
                 words = detections or []
                 recognized = " ".join(str(item[1]) for item in words if len(item) > 1)
                 normalized = re.sub(r"[^a-z0-9 ]", " ", recognized.lower())
-                normalized = re.sub(r"\s+", " ", normalized).strip()
+                normalized = re.sub(r"\\s+", " ", normalized).strip()
 
+                # Retry only inside the same banner region; enlarged OCR
+                # coordinates are intentionally not mixed with original pixels.
                 if "spawned" not in normalized:
-                    from PIL import ImageEnhance, ImageOps
-                    enlarged = image.resize((image.width * 2, image.height * 2), Image.Resampling.LANCZOS)
+                    enlarged = roi.resize((roi.width * 2, roi.height * 2), Image.Resampling.LANCZOS)
                     enhanced = ImageEnhance.Contrast(ImageOps.grayscale(enlarged)).enhance(2.0)
                     retry_detections, _retry_elapsed = ocr(np.array(enhanced))
                     retry_words = retry_detections or []
                     retry_text = " ".join(str(item[1]) for item in retry_words if len(item) > 1)
                     retry_normalized = re.sub(r"[^a-z0-9 ]", " ", retry_text.lower())
-                    retry_normalized = re.sub(r"\s+", " ", retry_normalized).strip()
+                    retry_normalized = re.sub(r"\\s+", " ", retry_normalized).strip()
                     if "spawned" in retry_normalized:
-                        # Retry boxes are scaled 2x, so use the full original ROI
-                        # for the event image rather than mixing coordinate systems.
                         words = []
                         recognized = retry_text
                         normalized = retry_normalized
 
-                # Any notification containing the word Spawned is a match,
-                # regardless of rarity/type or creature name.
-                phrase_found = "spawned" in normalized
-                if phrase_found:
+                if "spawned" in normalized:
                     text_boxes = []
                     for item in words:
                         if len(item) < 2 or not str(item[1]).strip():
@@ -794,26 +796,29 @@ class AzToolApp:
                         xs = [float(p[0]) for p in pts]
                         ys = [float(p[1]) for p in pts]
                         text_boxes.append((min(xs), min(ys), max(xs), max(ys)))
+
                     if text_boxes:
-                        x0 = max(0, int(min(b[0] for b in text_boxes) - 45))
-                        y0 = max(0, int(min(b[1] for b in text_boxes) - 20))
-                        x1 = min(image.width, int(max(b[2] for b in text_boxes) + 45))
-                        y1 = min(image.height, int(max(b[3] for b in text_boxes) + 100))
-                        crop = image.crop((x0, y0, x1, y1))
+                        x0 = max(0, int(min(b[0] for b in text_boxes) - 55))
+                        y0 = max(0, int(min(b[1] for b in text_boxes) - 35))
+                        x1 = min(roi.width, int(max(b[2] for b in text_boxes) + 55))
+                        y1 = min(roi.height, int(max(b[3] for b in text_boxes) + 75))
+                        crop = roi.crop((x0, y0, x1, y1))
                     else:
-                        crop = image
+                        # Retry OCR found the banner but its coordinates belong
+                        # to a 2x image, so send the original banner ROI only.
+                        crop = roi
+
                     crop_detections, _ = ocr(np.array(crop))
                     crop_text = " ".join(str(item[1]) for item in (crop_detections or []) if len(item) > 1)
-                    # Do not discard a detected alert just because OCR misses it on the second crop pass.
                     crop_normalized = re.sub(r"[^a-z0-9 ]", " ", crop_text.lower())
-                    crop_normalized = re.sub(r"\s+", " ", crop_normalized).strip()
+                    crop_normalized = re.sub(r"\\s+", " ", crop_normalized).strip()
                     if "spawned" not in crop_normalized:
-                        crop = image
+                        crop = roi
                         crop_text = recognized or "Spawned"
-                    event_key = re.sub(r"\s+", " ", (crop_text or recognized or "Spawned").lower()).strip()
+
+                    event_key = re.sub(r"\\s+", " ", (crop_text or recognized or "Spawned").lower()).strip()
                     now = time.time()
                     if event_key != self._last_event_key or now - self._last_event_at > EVENT_COOLDOWN_SECONDS:
-                        # Encode the crop in memory only; never write a screenshot file to disk.
                         buffer = io.BytesIO()
                         crop.save(buffer, format="PNG")
                         image_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
@@ -835,7 +840,7 @@ class AzToolApp:
                         buffer.close()
                         time.sleep(EVENT_COOLDOWN_SECONDS)
                 else:
-                    self.root.after(0, lambda: self.radar_status.set("ON • Watching Fortnite notification area…"))
+                    self.root.after(0, lambda: self.radar_status.set("ON • Watching lower-center Spawned banner…"))
             except Exception as exc:
                 self.root.after(0, lambda e=str(exc): self.radar_status.set(f"ON • Radar warning: {e[:100]}"))
             time.sleep(POLL_SECONDS)
