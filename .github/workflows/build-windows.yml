@@ -1,4 +1,4 @@
-name: Build az tool for Windows
+name: Build and publish az Tool for Windows
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
       - ".github/workflows/build-windows.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -33,10 +33,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt nuitka zstandard
 
-      - name: Generate feather icon
+      - name: Generate application icon
         run: python make_icon.py
 
-      - name: Compile single-file Windows application
+      - name: Compile Windows application
         run: >-
           python -m nuitka --mode=onefile --windows-console-mode=disable
           --assume-yes-for-downloads
@@ -49,10 +49,18 @@ jobs:
           --output-filename="az tool.exe"
           az_tool.py
 
-      - name: Upload the EXE only
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: az-tool-windows
           path: "az tool.exe"
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish downloadable GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = "az-tool-build-${{ github.run_number }}"
+          gh release create $tag "az tool.exe" --title "az Tool Windows build ${{ github.run_number }}" --notes "Automatically built from branch az-tool-rebuild. Download az tool.exe and run it on Windows."
