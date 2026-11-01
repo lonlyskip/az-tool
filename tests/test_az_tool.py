@@ -68,6 +68,16 @@ class UtilityTests(unittest.TestCase):
     def test_runtime_base_dir_returns_source_directory_without_nuitka(self):
         self.assertEqual(az_tool.runtime_base_dir(), os.path.dirname(os.path.abspath(az_tool.__file__)))
 
+    def test_notification_region_is_within_small_display(self):
+        monitor = {"left": 0, "top": 0, "width": 800, "height": 600}
+        region = az_tool.notification_region(monitor)
+        self.assertLess(region["width"], monitor["width"])
+        self.assertLess(region["height"], monitor["height"])
+        self.assertGreaterEqual(region["left"], 0)
+        self.assertGreaterEqual(region["top"], 0)
+        self.assertLessEqual(region["left"] + region["width"], 800)
+        self.assertLessEqual(region["top"] + region["height"], 600)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
