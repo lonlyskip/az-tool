@@ -79,10 +79,9 @@ jobs:
         run: |
           $distDir = "build/az_tool.dist"
           $builtExe = Join-Path $distDir "az tool.exe"
-          $exe = "build/az tool.exe"
+          $exe = $builtExe
           if (-not (Test-Path $distDir -PathType Container)) { throw "Nuitka standalone runtime folder was not created." }
           if (-not (Test-Path $builtExe -PathType Leaf)) { throw "Standalone executable was not created." }
-          Move-Item -LiteralPath $builtExe -Destination $exe
           $file = Get-Item $exe
           if ($file.Length -lt 10MB) { throw "Executable is unexpectedly small ($($file.Length) bytes)." }
           $stream = [System.IO.File]::OpenRead((Resolve-Path $exe))
@@ -115,11 +114,17 @@ jobs:
         run: |
           $zip = "AZ-Tool-Windows.zip"
           if (Test-Path $zip) { Remove-Item $zip -Force }
-          Compress-Archive -LiteralPath "build/az tool.exe","build/az_tool.dist" -DestinationPath $zip -CompressionLevel Optimal
+          $packageDir = "build/AZ-Tool-Windows"
+          if (Test-Path $packageDir) { Remove-Item $packageDir -Recurse -Force }
+          Move-Item -LiteralPath "build/az_tool.dist" -Destination $packageDir
+          $packageExe = Join-Path $packageDir "az tool.exe"
+          if (-not (Test-Path $packageExe -PathType Leaf)) { throw "Executable missing from standalone package." }
+          if (-not (Get-ChildItem $packageDir -Filter "python311.dll" -Recurse)) { throw "python311.dll missing from standalone package." }
+          Compress-Archive -LiteralPath $packageDir -DestinationPath $zip -CompressionLevel Optimal
           if (-not (Test-Path $zip -PathType Leaf)) { throw "ZIP package was not created." }
           "## ZIP package" >> $env:GITHUB_STEP_SUMMARY
           "- Archive: $zip" >> $env:GITHUB_STEP_SUMMARY
-          "- Contains: az tool.exe and az tool.dist runtime directory" >> $env:GITHUB_STEP_SUMMARY
+          "- Contains: AZ-Tool-Windows folder with executable and all runtime files together" >> $env:GITHUB_STEP_SUMMARY
 
       - name: Upload ZIP build artifact
         uses: actions/upload-artifact@v4
@@ -138,7 +143,7 @@ jobs:
           $notes = @"
           Windows ZIP package with executable and required runtime folder.
           File: AZ-Tool-Windows.zip
-          Contents: az tool.exe + az tool.dist/
+          Contents: AZ-Tool-Windows/ (az tool.exe and all runtime files in the same folder)
           Product version: 1.0.${{ github.run_number }}.0
           SHA-256: ${{ steps.verify.outputs.sha256 }}
 
