@@ -54,9 +54,10 @@ jobs:
           if (-not (Test-Path "assets/az-tool-icon.png")) { throw "PNG icon was not generated." }
           if ((Get-Item "assets/az-tool-icon.ico").Length -lt 1024) { throw "ICO icon is unexpectedly small." }
 
-      - name: Compile Windows application (onefile)
+      - name: Compile Windows application (standalone folder)
         run: >-
-          python -m nuitka --mode=onefile --windows-console-mode=disable
+          python -m nuitka --mode=standalone --windows-console-mode=disable
+          --output-dir=build
           --assume-yes-for-downloads
           --company-name="NEXORA"
           --product-name="AZ Tool"
@@ -76,8 +77,12 @@ jobs:
         id: verify
         shell: pwsh
         run: |
-          $exe = "az tool.exe"
-          if (-not (Test-Path $exe -PathType Leaf)) { throw "Onefile executable was not created." }
+          $distDir = "build/az tool.dist"
+          $builtExe = Join-Path $distDir "az tool.exe"
+          $exe = "build/az tool.exe"
+          if (-not (Test-Path $distDir -PathType Container)) { throw "Nuitka standalone runtime folder was not created." }
+          if (-not (Test-Path $builtExe -PathType Leaf)) { throw "Standalone executable was not created." }
+          Move-Item -LiteralPath $builtExe -Destination $exe
           $file = Get-Item $exe
           if ($file.Length -lt 10MB) { throw "Executable is unexpectedly small ($($file.Length) bytes)." }
           $stream = [System.IO.File]::OpenRead((Resolve-Path $exe))
@@ -105,11 +110,22 @@ jobs:
           "- Product version: $($version.ProductVersion)" >> $env:GITHUB_STEP_SUMMARY
           "- SHA-256: $hash" >> $env:GITHUB_STEP_SUMMARY
 
-      - name: Upload build artifact
+      - name: Create ZIP package
+        shell: pwsh
+        run: |
+          $zip = "AZ-Tool-Windows.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -LiteralPath "build/az tool.exe","build/az tool.dist" -DestinationPath $zip -CompressionLevel Optimal
+          if (-not (Test-Path $zip -PathType Leaf)) { throw "ZIP package was not created." }
+          "## ZIP package" >> $env:GITHUB_STEP_SUMMARY
+          "- Archive: $zip" >> $env:GITHUB_STEP_SUMMARY
+          "- Contains: az tool.exe and az tool.dist runtime directory" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload ZIP build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: az-tool-exe
-          path: "az tool.exe"
+          name: az-tool-windows-zip
+          path: "AZ-Tool-Windows.zip"
           if-no-files-found: error
           retention-days: 14
 
@@ -120,11 +136,12 @@ jobs:
         run: |
           $tag = "az-tool-build-${{ github.run_number }}"
           $notes = @"
-          Single-file Windows executable.
-          File: az tool.exe
+          Windows ZIP package with executable and required runtime folder.
+          File: AZ-Tool-Windows.zip
+          Contents: az tool.exe + az tool.dist/
           Product version: 1.0.${{ github.run_number }}.0
           SHA-256: ${{ steps.verify.outputs.sha256 }}
 
           This build is not Authenticode-signed. Windows may show an Unknown publisher warning. Antivirus detections are not ruled out by successful build validation.
           "@
-          gh release create $tag "az tool.exe" --title "az Tool Windows build ${{ github.run_number }}" --notes $notes
+          gh release create $tag "AZ-Tool-Windows.zip" --title "az Tool Windows build ${{ github.run_number }}" --notes $notes
