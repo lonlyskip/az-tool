@@ -197,6 +197,7 @@ class AzToolApp:
         self.expiry = tk.StringVar(value="—")
         self.radar_status = tk.StringVar(value="OFF • Waiting for license and Discord verification")
         self.radar_enabled = False
+        self._radar_stop = threading.Event()
         self._polling = False
         self._radar_thread = None
         self._last_event_key = None
@@ -504,14 +505,16 @@ class AzToolApp:
             self.root.after(0, lambda: setattr(self, "_activation_in_progress", False))
 
     def _schedule_subscription_check(self):
-        """Check the subscription every second without overlapping requests."""
-        if self._closing or self._subscription_expired or self._activation_in_progress:
+        """Revalidate active subscriptions periodically without overlapping requests."""
+        if self._closing or self._subscription_expired:
             return
-        key = self.license_key.get().strip()
-        if key and not self._license_check_in_progress:
-            self._license_check_in_progress = True
-            threading.Thread(target=self._automatic_subscription_check, args=(key,), daemon=True).start()
-        self.root.after(1000, self._schedule_subscription_check)
+        if not self._activation_in_progress:
+            key = self.license_key.get().strip()
+            if key and not self._license_check_in_progress:
+                self._license_check_in_progress = True
+                threading.Thread(target=self._automatic_subscription_check, args=(key,), daemon=True).start()
+        if not self._closing and not self._subscription_expired:
+            self.root.after(60_000, self._schedule_subscription_check)
 
     def _automatic_subscription_check(self, key):
         try:
@@ -841,6 +844,7 @@ class AzToolApp:
         except ImportError:
             messagebox.showerror("Missing components", "This build is missing bundled radar components. Please reinstall the complete az Tool application build.")
             return
+        self._radar_stop.clear()
         self.radar_enabled = True
         self.radar_button.config(text="STOP RADAR", bg=RED, fg="white")
         self.radar_status.set("ON • Initializing OCR engine…")
@@ -854,8 +858,10 @@ class AzToolApp:
 
     def stop_radar(self):
         self.radar_enabled = False
-        self.radar_button.config(text="START RADAR", bg=GREEN, fg="#07110d")
-        self.radar_status.set("OFF • Radar stopped. No screen monitoring is active.")
+        self._radar_stop.set()
+        if not self._closing:
+            self.radar_button.config(text="START RADAR", bg=GREEN, fg="#07110d")
+            self.radar_status.set("OFF • Radar stopping. No new screen checks or uploads will start.")
 
     def _radar_loop(self):
         """Watch only the lower-center Spawn/Spawned notification on the primary display."""
@@ -882,8 +888,9 @@ class AzToolApp:
             self.root.after(0, lambda msg=message: self._radar_startup_failed(msg))
             return
 
-        while self.radar_enabled:
-            try:
+        try:
+            while self.radar_enabled and not self._radar_stop.is_set() and not self._closing:
+                try:
                 hwnd = win32gui.GetForegroundWindow()
                 title = win32gui.GetWindowText(hwnd).lower()
                 process_name = ""
@@ -912,7 +919,7 @@ class AzToolApp:
                             f"ON • Waiting for Fortnite. Active window: {name}"
                         )
                     )
-                    time.sleep(POLL_SECONDS)
+                    self._radar_stop.wait(POLL_SECONDS)
                     continue
 
                 # Scan a compact lower-center region while Fortnite is foreground.
@@ -938,6 +945,9 @@ class AzToolApp:
 
                 # Do not run a second enlarged OCR pass on every frame:
                 # that was a major source of CPU spikes and Fortnite stutter.
+
+                if self._radar_stop.is_set() or self._closing:
+                    break
 
                 if re.search(r"\bspawn(?:ed)?\b", normalized):
                     text_boxes = []
@@ -967,12 +977,17 @@ class AzToolApp:
                     event_key = re.sub(r"\s+", " ", (crop_text or recognized or "Spawned").lower()).strip()
                     now = time.time()
                     if event_key != self._last_event_key or now - self._last_event_at > EVENT_COOLDOWN_SECONDS:
+                        if self._radar_stop.is_set() or self._closing:
+                            break
                         self.root.after(0, lambda msg=event_key[:65]: self.radar_status.set(f"ON • SPAWN DETECTED: {msg} • Uploading…"))
                         buffer = io.BytesIO()
                         crop.save(buffer, format="PNG")
                         image_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
                         event_id = uuid.uuid4().hex
                         character_name = ("Spawned: " + crop_text[:110]) if crop_text.strip() else "Spawned"
+                        if self._radar_stop.is_set() or self._closing:
+                            buffer.close()
+                            break
                         result = post("/api/radar/event", {
                             "code": self.license_key.get().strip(),
                             "device_id": device_id(),
@@ -987,24 +1002,31 @@ class AzToolApp:
                             err = result.get("error", "Server rejected the event")
                             self.root.after(0, lambda msg=err: self.radar_status.set(f"ON • Discord delivery failed: {msg[:90]}"))
                         buffer.close()
-            except Exception as exc:
-                self.root.after(0, lambda e=str(exc): self.radar_status.set(f"ON • Radar warning: {e[:100]}"))
-            time.sleep(POLL_SECONDS)
-
-        try:
-            sct.close()
-        except Exception:
-            pass
+                except Exception as exc:
+                    if not self._closing and not self._radar_stop.is_set():
+                        self.root.after(0, lambda e=str(exc): self.radar_status.set(f"ON • Radar warning: {e[:100]}"))
+                self._radar_stop.wait(POLL_SECONDS)
+        finally:
+            self.radar_enabled = False
+            try:
+                sct.close()
+            except Exception:
+                pass
 
     def close(self):
+        if self._closing:
+            return
         self._closing = True
         self._polling = False
+        self._radar_stop.set()
+        self.radar_enabled = False
+        self._afk_stop.set()
+        self.afk_enabled = False
         try:
             if os.name == "nt" and self._hotkey_thread_id:
                 ctypes.windll.user32.PostThreadMessageW(self._hotkey_thread_id, 0x0012, 0, 0)  # WM_QUIT
         except Exception:
             pass
-        self.radar_enabled = False
         try:
             if os.name == "nt":
                 ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
