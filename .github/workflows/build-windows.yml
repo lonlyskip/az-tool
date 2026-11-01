@@ -40,6 +40,11 @@ jobs:
         run: >-
           python -m nuitka --mode=onefile --windows-console-mode=disable
           --assume-yes-for-downloads
+          --company-name="NEXORA"
+          --product-name="AZ Tool"
+          --file-description="AZ Tool - Desktop Application"
+          --file-version="1.0.${{ github.run_number }}.0"
+          --product-version="1.0.${{ github.run_number }}.0"
           --enable-plugin=tk-inter
           --include-package=rapidocr_onnxruntime
           --include-package-data=rapidocr_onnxruntime
