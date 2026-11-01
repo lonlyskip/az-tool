@@ -55,10 +55,6 @@ class UtilityTests(unittest.TestCase):
 
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-
     def test_notification_region_is_compact_and_clamped(self):
         monitor = {"left": 100, "top": 50, "width": 1920, "height": 1080}
         region = az_tool.notification_region(monitor)
@@ -71,3 +67,7 @@ if __name__ == "__main__":
 
     def test_runtime_base_dir_returns_source_directory_without_nuitka(self):
         self.assertEqual(az_tool.runtime_base_dir(), os.path.dirname(os.path.abspath(az_tool.__file__)))
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
