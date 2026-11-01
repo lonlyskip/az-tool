@@ -22,7 +22,7 @@ APP_NAME = "az tool"
 LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
 APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "az tool")
 STATE_FILE = os.path.join(APP_DIR, "state.json")
-# Scan the entire primary display so Spawned notifications are not missed by a fixed ROI.
+# Radar scans only a compact lower-center notification region while Fortnite is foreground.
 POLL_SECONDS = 0.50
 
 EVENT_COOLDOWN_SECONDS = 1.5
@@ -434,7 +434,7 @@ class AzToolApp:
         if self.license_key.get().strip():
             self.status.set("Saved key loaded — activate to validate")
         self.root.after(1000, self._refresh_link_state)
-        self.root.after(30000, self._schedule_subscription_check)
+        self.root.after(1000, self._schedule_subscription_check)
 
     def _show_gated_sections(self):
         if not self._link_verified and not self._discord_skipped:
@@ -956,8 +956,8 @@ class AzToolApp:
                         y1 = min(roi.height, int(max(b[3] for b in text_boxes) + 75))
                         crop = roi.crop((x0, y0, x1, y1))
                     else:
-                        # Retry OCR found the banner but its coordinates belong
-                        # to a 2x image, so send the original banner ROI only.
+                        # OCR found the text but supplied no usable coordinates;
+                        # send only the compact notification region as a fallback.
                         crop = roi
 
                     # Upload only the detected notification crop. Keep the full ROI
