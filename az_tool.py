@@ -945,8 +945,8 @@ class AzToolApp:
                         # to a 2x image, so send the original banner ROI only.
                         crop = roi
 
-                    # Reuse the already captured notification strip; no third OCR pass.
-                    crop = roi
+                    # Upload only the detected notification crop. Keep the full ROI
+                    # only as the fallback when OCR did not provide usable coordinates.
                     crop_text = recognized or "Spawned"
 
                     event_key = re.sub(r"\s+", " ", (crop_text or recognized or "Spawned").lower()).strip()
