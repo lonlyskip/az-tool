@@ -163,12 +163,32 @@ jobs:
               }
           }
           '@
-          Set-Content -LiteralPath "build/launcher.cs" -Value $launcherSource -Encoding UTF8
+          $launcherSourcePath = Join-Path (Get-Location).Path "build/launcher.cs"
+          Set-Content -LiteralPath $launcherSourcePath -Value $launcherSource -Encoding UTF8
+
           $csc = Join-Path $env:WINDIR "Microsoft.NET/Framework64/v4.0.30319/csc.exe"
-          if (-not (Test-Path $csc)) { throw "C# compiler not found." }
-          $launcher = Join-Path $packageDir "az tool.exe"
-          & $csc /nologo /target:winexe /platform:x64 /optimize+ /win32icon:assets/az-tool-icon.ico /out:$launcher /reference:System.Windows.Forms.dll build/launcher.cs
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $launcher)) { throw "Launcher compilation failed." }
+          if (-not (Test-Path $csc -PathType Leaf)) { throw "C# compiler not found: $csc" }
+
+          # csc.exe treats slash-prefixed relative paths as compiler switches.
+          # Resolve source and output paths to absolute Windows paths first.
+          $launcherSourcePath = (Resolve-Path -LiteralPath $launcherSourcePath).Path
+          $launcher = Join-Path (Resolve-Path -LiteralPath $packageDir).Path "az tool.exe"
+          $iconPath = (Resolve-Path -LiteralPath "assets/az-tool-icon.ico").Path
+
+          $compilerArgs = @(
+            "/nologo"
+            "/target:winexe"
+            "/platform:x64"
+            "/optimize+"
+            "/win32icon:$iconPath"
+            "/out:$launcher"
+            "/reference:System.Windows.Forms.dll"
+            $launcherSourcePath
+          )
+          & $csc @compilerArgs
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
+            throw "Launcher compilation failed (csc exit code: $LASTEXITCODE)."
+          }
 
           Compress-Archive -LiteralPath $packageDir -DestinationPath $zip -CompressionLevel Optimal
           if (-not (Test-Path $zip -PathType Leaf)) { throw "ZIP package was not created." }
