@@ -929,12 +929,12 @@ class AzToolApp:
                     words = detections or []
                     recognized = " ".join(str(item[1]) for item in words if len(item) > 1)
                     normalized = re.sub(r"[^a-z0-9 ]", " ", recognized.lower())
-                    normalized = re.sub(r"\\s+", " ", normalized).strip()
+                    normalized = re.sub(r"\s+", " ", normalized).strip()
 
                     now_status = time.time()
                     if now_status - self._last_ocr_status_at >= 2.0:
                         self._last_ocr_status_at = now_status
-                        debug_text = re.sub(r"\\s+", " ", recognized).strip()
+                        debug_text = re.sub(r"\s+", " ", recognized).strip()
                         if not debug_text:
                             debug_text = "no text recognized in notification area"
                         debug_text = debug_text[:75]
@@ -944,7 +944,7 @@ class AzToolApp:
                     if self._radar_stop.is_set() or self._closing:
                         break
 
-                    if re.search(r"\\bspawn(?:ed)?\\b", normalized):
+                    if re.search(r"\bspawn(?:ed)?\b", normalized):
                         text_boxes = []
                         for item in words:
                             if len(item) < 2 or not str(item[1]).strip():
@@ -964,7 +964,7 @@ class AzToolApp:
                             crop = roi
 
                         crop_text = recognized or "Spawned"
-                        event_key = re.sub(r"\\s+", " ", crop_text.lower()).strip()
+                        event_key = re.sub(r"\s+", " ", crop_text.lower()).strip()
                         now = time.time()
                         if event_key != self._last_event_key or now - self._last_event_at > EVENT_COOLDOWN_SECONDS:
                             if self._radar_stop.is_set() or self._closing:
