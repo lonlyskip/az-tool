@@ -54,5 +54,20 @@ class UtilityTests(unittest.TestCase):
         self.assertIn("تعذر الاتصال", az_tool.arabic_error("Cannot reach license server"))
 
 
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+    def test_notification_region_is_compact_and_clamped(self):
+        monitor = {"left": 100, "top": 50, "width": 1920, "height": 1080}
+        region = az_tool.notification_region(monitor)
+        self.assertEqual(region["width"], int(1920 * 0.48))
+        self.assertEqual(region["height"], int(1080 * 0.16))
+        self.assertGreaterEqual(region["left"], monitor["left"])
+        self.assertGreaterEqual(region["top"], monitor["top"])
+        self.assertLessEqual(region["left"] + region["width"], monitor["left"] + monitor["width"])
+        self.assertLessEqual(region["top"] + region["height"], monitor["top"] + monitor["height"])
+
+    def test_runtime_base_dir_returns_source_directory_without_nuitka(self):
+        self.assertEqual(az_tool.runtime_base_dir(), os.path.dirname(os.path.abspath(az_tool.__file__)))
