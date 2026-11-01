@@ -77,7 +77,7 @@ jobs:
         id: verify
         shell: pwsh
         run: |
-          $distDir = "build/az tool.dist"
+          $distDir = "build/az_tool.dist"
           $builtExe = Join-Path $distDir "az tool.exe"
           $exe = "build/az tool.exe"
           if (-not (Test-Path $distDir -PathType Container)) { throw "Nuitka standalone runtime folder was not created." }
@@ -115,7 +115,7 @@ jobs:
         run: |
           $zip = "AZ-Tool-Windows.zip"
           if (Test-Path $zip) { Remove-Item $zip -Force }
-          Compress-Archive -LiteralPath "build/az tool.exe","build/az tool.dist" -DestinationPath $zip -CompressionLevel Optimal
+          Compress-Archive -LiteralPath "build/az tool.exe","build/az_tool.dist" -DestinationPath $zip -CompressionLevel Optimal
           if (-not (Test-Path $zip -PathType Leaf)) { throw "ZIP package was not created." }
           "## ZIP package" >> $env:GITHUB_STEP_SUMMARY
           "- Archive: $zip" >> $env:GITHUB_STEP_SUMMARY
