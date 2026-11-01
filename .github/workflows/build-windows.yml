@@ -9,6 +9,7 @@ on:
       - "az_tool.py"
       - "requirements.txt"
       - "make_icon.py"
+      - "tests/**"
       - "IMG_4552.jpg"
       - ".github/workflows/build-windows.yml"
 
@@ -28,13 +29,30 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install dependencies
+      - name: Install pinned dependencies and build tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt nuitka zstandard
+          python -m pip install -r requirements.txt
+          python -m pip install nuitka zstandard
+
+      - name: Compile source syntax
+        run: python -m compileall -q az_tool.py make_icon.py tests
+
+      - name: Run offline unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Verify dependency consistency
+        run: python -m pip check
 
       - name: Generate application icon
         run: python make_icon.py
+
+      - name: Verify generated icon assets
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "assets/az-tool-icon.ico")) { throw "ICO icon was not generated." }
+          if (-not (Test-Path "assets/az-tool-icon.png")) { throw "PNG icon was not generated." }
+          if ((Get-Item "assets/az-tool-icon.ico").Length -lt 1024) { throw "ICO icon is unexpectedly small." }
 
       - name: Compile Windows application (onefile)
         run: >-
@@ -54,12 +72,38 @@ jobs:
           --output-filename="az tool.exe"
           az_tool.py
 
-      - name: Verify standalone executable
+      - name: Validate PE executable and calculate SHA-256
+        id: verify
         shell: pwsh
         run: |
-          if (-not (Test-Path "az tool.exe")) {
-            throw "Onefile executable was not created."
-          }
+          $exe = "az tool.exe"
+          if (-not (Test-Path $exe -PathType Leaf)) { throw "Onefile executable was not created." }
+          $file = Get-Item $exe
+          if ($file.Length -lt 10MB) { throw "Executable is unexpectedly small ($($file.Length) bytes)." }
+          $stream = [System.IO.File]::OpenRead((Resolve-Path $exe))
+          try {
+            $reader = New-Object System.IO.BinaryReader($stream)
+            if ($reader.ReadUInt16() -ne 0x5A4D) { throw "Missing MZ DOS header." }
+            $stream.Position = 0x3C
+            $peOffset = $reader.ReadInt32()
+            if ($peOffset -lt 64 -or $peOffset -gt ($stream.Length - 6)) { throw "Invalid PE header offset." }
+            $stream.Position = $peOffset
+            if ($reader.ReadUInt32() -ne 0x00004550) { throw "Missing PE signature." }
+            $machine = $reader.ReadUInt16()
+            if ($machine -ne 0x8664) { throw "Unexpected PE machine type: $machine (expected x64)." }
+          } finally { $stream.Dispose() }
+          $version = $file.VersionInfo
+          if ($version.ProductName -ne "AZ Tool") { throw "Unexpected ProductName: $($version.ProductName)" }
+          if ($version.CompanyName -ne "NEXORA") { throw "Unexpected CompanyName: $($version.CompanyName)" }
+          $expectedVersion = "1.0.${{ github.run_number }}.0"
+          if ($version.ProductVersion -ne $expectedVersion) { throw "Unexpected ProductVersion: $($version.ProductVersion)" }
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+          "## AZ Tool build verification" >> $env:GITHUB_STEP_SUMMARY
+          "- File: az tool.exe" >> $env:GITHUB_STEP_SUMMARY
+          "- Size: $($file.Length) bytes" >> $env:GITHUB_STEP_SUMMARY
+          "- Product version: $($version.ProductVersion)" >> $env:GITHUB_STEP_SUMMARY
+          "- SHA-256: $hash" >> $env:GITHUB_STEP_SUMMARY
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -75,4 +119,12 @@ jobs:
         shell: pwsh
         run: |
           $tag = "az-tool-build-${{ github.run_number }}"
-          gh release create $tag "az tool.exe" --title "az Tool Windows build ${{ github.run_number }}" --notes "Single-file Windows executable. Download and run az tool.exe. Onefile packaging may trigger antivirus warnings; this is not guaranteed to disappear."
+          $notes = @"
+          Single-file Windows executable.
+          File: az tool.exe
+          Product version: 1.0.${{ github.run_number }}.0
+          SHA-256: ${{ steps.verify.outputs.sha256 }}
+
+          This build is not Authenticode-signed. Windows may show an Unknown publisher warning. Antivirus detections are not ruled out by successful build validation.
+          "@
+          gh release create $tag "az tool.exe" --title "az Tool Windows build ${{ github.run_number }}" --notes $notes
