@@ -118,7 +118,7 @@ jobs:
           $runtimeDir = Join-Path $packageDir "runtime"
           if (Test-Path $packageDir) { Remove-Item $packageDir -Recurse -Force }
           New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
-          Move-Item -LiteralPath "build/az_tool.dist/*" -Destination $runtimeDir
+          Get-ChildItem -LiteralPath "build/az_tool.dist" | Move-Item -Destination $runtimeDir
           $runtimeExe = Join-Path $runtimeDir "az tool.exe"
           if (-not (Test-Path $runtimeExe -PathType Leaf)) { throw "Runtime executable missing." }
           Rename-Item -LiteralPath $runtimeExe -NewName "az-tool-core.exe"
