@@ -52,3 +52,13 @@ py -m nuitka --mode=onefile --windows-console-mode=disable --assume-yes-for-down
 - Do not put Discord bot tokens or Cloudflare admin tokens in the Windows app. Those belong on the bot/server only.
 - The local device identifier is a convenience binding, not strong anti-tamper protection.
 - Check the applicable game rules before using automated input features.
+
+
+## Radar privacy
+
+- Screen checks run only while Spawn Radar is ON and Fortnite is the foreground application.
+- OCR checks a compact lower-center region of the primary display for Spawn/Spawned text.
+- An image is uploaded over HTTPS to the configured AZ Tool Worker only after a Spawn/Spawned match.
+- The upload is normally cropped around the OCR text boxes. If OCR detects the text but provides no usable coordinates, the app sends the compact scan region instead.
+- The app does not intentionally save captured screen images to disk. Stop Radar to stop screen checks and uploads.
+- The app sends the license key, device identifier, event identifier, recognized event text, and the image crop to the configured Worker endpoint for event processing.
