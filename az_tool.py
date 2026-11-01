@@ -24,7 +24,32 @@ APP_DIR = os.path.join(os.getenv("APPDATA", os.path.expanduser("~")), "az tool")
 STATE_FILE = os.path.join(APP_DIR, "state.json")
 # Scan the entire primary display so Spawned notifications are not missed by a fixed ROI.
 POLL_SECONDS = 0.50
+
 EVENT_COOLDOWN_SECONDS = 1.5
+
+
+def runtime_base_dir():
+    """Return the directory containing bundled onefile data for Nuitka or a source run."""
+    compiled = globals().get("__compiled__")
+    if compiled is not None:
+        containing_dir = getattr(compiled, "containing_dir", None)
+        if containing_dir:
+            return os.path.abspath(containing_dir)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def notification_region(monitor):
+    """Small lower-center OCR region, clamped to the primary display bounds."""
+    left_edge = int(monitor["left"])
+    top_edge = int(monitor["top"])
+    width = max(1, int(monitor["width"]))
+    height = max(1, int(monitor["height"]))
+    region_width = max(1, int(width * 0.48))
+    region_height = max(1, int(height * 0.16))
+    left = left_edge + (width - region_width) // 2
+    top = top_edge + int(height * 0.78)
+    top = min(top, top_edge + height - region_height)
+    return {"left": left, "top": top, "width": region_width, "height": region_height}
 
 BG = "#0b0d12"
 PANEL = "#131722"
@@ -154,10 +179,12 @@ class AzToolApp:
                         break
             except Exception:
                 pass
-        icon_path = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "assets", "az-tool-icon.ico")
-        # PyInstaller bundles the same feather icon for the executable and the app window/taskbar.
-        if not os.path.exists(icon_path):
-            icon_path = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "az-tool-icon.ico")
+        base_dir = runtime_base_dir()
+        icon_candidates = (
+            os.path.join(base_dir, "az-tool-icon.ico"),
+            os.path.join(base_dir, "assets", "az-tool-icon.ico"),
+        )
+        icon_path = next((path for path in icon_candidates if os.path.exists(path)), icon_candidates[0])
         try:
             self.root.iconbitmap(icon_path)
         except (tk.TclError, OSError):
@@ -207,7 +234,7 @@ class AzToolApp:
 
     def _setup_background(self):
         """Load the bundled Nexora artwork as a dark, full-window background."""
-        base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        base_dir = runtime_base_dir()
         image_path = os.path.join(base_dir, "IMG_4552.jpg")
         try:
             self._background_original = Image.open(image_path).convert("RGB")
@@ -393,6 +420,7 @@ class AzToolApp:
         tk.Label(radar_card, textvariable=self.radar_status, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 9), wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
         self.label(radar_card, "Shows live OCR text from the notification area. Server acceptance and Discord delivery are reported separately.", MUTED, 9).pack(anchor="w", pady=(5, 0))
+        self.label(radar_card, "Privacy: while Radar is ON and Fortnite is the active window, the app checks a small lower-center screen area for Spawn/Spawned text. It uploads an image crop around detected text to the AZ Tool server over HTTPS only after a match. If OCR cannot provide text coordinates, the full small scan area is sent instead. No screen image is intentionally saved to disk. Stop Radar to stop screen checks.", MUTED, 9).pack(anchor="w", pady=(7, 0))
 
 
         self.discord_card.pack_forget()
@@ -402,7 +430,7 @@ class AzToolApp:
 
         footer = tk.Frame(self.root, bg=BG)
         footer.pack(fill="x", padx=28, pady=(10, 18))
-        self.label(footer, "License validation • Foreground Fortnite window required • Screen image sent only when Spawn is detected", MUTED, 8).pack(anchor="w")
+        self.label(footer, "Radar privacy details are shown in the Spawn Radar section. Screen images are uploaded only after a Spawn match.", MUTED, 8).pack(anchor="w")
         if self.license_key.get().strip():
             self.status.set("Saved key loaded — activate to validate")
         self.root.after(1000, self._refresh_link_state)
@@ -887,21 +915,8 @@ class AzToolApp:
                     time.sleep(POLL_SECONDS)
                     continue
 
-                # Capture only the notification strip. The ROI is shifted right,
-                # but remains fully inside the display bounds.
-                monitor = sct.monitors[1]
-                screen_width = int(monitor["width"])
-                screen_height = int(monitor["height"])
-                region_width = max(1, int(screen_width * 0.64))
-                region_height = max(1, int(screen_height * 0.25))
-                left = int(monitor["left"] + (screen_width - region_width) // 2 + screen_width * 0.05)
-                left = max(int(monitor["left"]), min(left, int(monitor["left"] + screen_width - region_width)))
-                region = {
-                    "left": left,
-                    "top": int(monitor["top"] + screen_height * 0.70),
-                    "width": region_width,
-                    "height": region_height,
-                }
+                # Scan a compact lower-center region while Fortnite is foreground.
+                region = notification_region(sct.monitors[1])
                 shot = sct.grab(region)
                 roi = Image.frombytes("RGB", shot.size, shot.rgb)
 
