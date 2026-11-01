@@ -868,140 +868,136 @@ class AzToolApp:
         try:
             import mss
             from rapidocr_onnxruntime import RapidOCR
-            from PIL import Image, ImageEnhance, ImageOps
+            from PIL import Image
             import numpy as np
             import win32gui
             import win32process
             ocr = RapidOCR()
         except Exception as exc:
-            # Surface initialization failures instead of leaving the UI stuck on "Waiting".
-            message = f"{type(exc).__name__}: {exc}"
-            self.root.after(0, lambda msg=message: self._radar_startup_failed(msg))
+            if not self._closing and not self._radar_stop.is_set():
+                message = f"{type(exc).__name__}: {exc}"
+                self.root.after(0, lambda msg=message: self._radar_startup_failed(msg))
             return
 
-        # Keep one capture handle for the lifetime of the radar thread.
-        # Recreating MSS on every pass adds avoidable overhead while Fortnite is rendering.
         try:
             sct = mss.mss()
         except Exception as exc:
-            message = f"{type(exc).__name__}: {exc}"
-            self.root.after(0, lambda msg=message: self._radar_startup_failed(msg))
+            if not self._closing and not self._radar_stop.is_set():
+                message = f"{type(exc).__name__}: {exc}"
+                self.root.after(0, lambda msg=message: self._radar_startup_failed(msg))
             return
 
         try:
             while self.radar_enabled and not self._radar_stop.is_set() and not self._closing:
                 try:
-                hwnd = win32gui.GetForegroundWindow()
-                title = win32gui.GetWindowText(hwnd).lower()
-                process_name = ""
-                try:
-                    _thread_id, process_id = win32process.GetWindowThreadProcessId(hwnd)
-                    process_handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, process_id)
-                    if process_handle:
-                        try:
-                            image_path = ctypes.create_unicode_buffer(1024)
-                            path_size = ctypes.wintypes.DWORD(len(image_path))
-                            if ctypes.windll.kernel32.QueryFullProcessImageNameW(
-                                process_handle, 0, image_path, ctypes.byref(path_size)
-                            ):
-                                process_name = os.path.basename(image_path.value).lower()
-                        finally:
-                            ctypes.windll.kernel32.CloseHandle(process_handle)
-                except Exception:
+                    hwnd = win32gui.GetForegroundWindow()
+                    title = win32gui.GetWindowText(hwnd).lower()
                     process_name = ""
+                    try:
+                        _thread_id, process_id = win32process.GetWindowThreadProcessId(hwnd)
+                        process_handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, process_id)
+                        if process_handle:
+                            try:
+                                image_path = ctypes.create_unicode_buffer(1024)
+                                path_size = ctypes.wintypes.DWORD(len(image_path))
+                                if ctypes.windll.kernel32.QueryFullProcessImageNameW(
+                                    process_handle, 0, image_path, ctypes.byref(path_size)
+                                ):
+                                    process_name = os.path.basename(image_path.value).lower()
+                            finally:
+                                ctypes.windll.kernel32.CloseHandle(process_handle)
+                    except Exception:
+                        process_name = ""
 
-                is_fortnite = "fortnite" in title or "fortniteclient" in process_name
-                if not is_fortnite:
-                    active_window = title[:45] or process_name or "unknown window"
-                    self.root.after(
-                        0,
-                        lambda name=active_window: self.radar_status.set(
-                            f"ON • Waiting for Fortnite. Active window: {name}"
-                        )
-                    )
-                    self._radar_stop.wait(POLL_SECONDS)
-                    continue
+                    is_fortnite = "fortnite" in title or "fortniteclient" in process_name
+                    if not is_fortnite:
+                        active_window = title[:45] or process_name or "unknown window"
+                        if not self._closing and not self._radar_stop.is_set():
+                            self.root.after(
+                                0,
+                                lambda name=active_window: self.radar_status.set(
+                                    f"ON • Waiting for Fortnite. Active window: {name}"
+                                )
+                            )
+                        self._radar_stop.wait(POLL_SECONDS)
+                        continue
 
-                # Scan a compact lower-center region while Fortnite is foreground.
-                region = notification_region(sct.monitors[1])
-                shot = sct.grab(region)
-                roi = Image.frombytes("RGB", shot.size, shot.rgb)
+                    region = notification_region(sct.monitors[1])
+                    shot = sct.grab(region)
+                    roi = Image.frombytes("RGB", shot.size, shot.rgb)
+                    detections, _elapsed = ocr(np.array(roi))
+                    words = detections or []
+                    recognized = " ".join(str(item[1]) for item in words if len(item) > 1)
+                    normalized = re.sub(r"[^a-z0-9 ]", " ", recognized.lower())
+                    normalized = re.sub(r"\\s+", " ", normalized).strip()
 
-                # One OCR pass per frame keeps CPU use predictable during gameplay.
-                detections, _elapsed = ocr(np.array(roi))
-                words = detections or []
-                recognized = " ".join(str(item[1]) for item in words if len(item) > 1)
-                normalized = re.sub(r"[^a-z0-9 ]", " ", recognized.lower())
-                normalized = re.sub(r"\s+", " ", normalized).strip()
+                    now_status = time.time()
+                    if now_status - self._last_ocr_status_at >= 2.0:
+                        self._last_ocr_status_at = now_status
+                        debug_text = re.sub(r"\\s+", " ", recognized).strip()
+                        if not debug_text:
+                            debug_text = "no text recognized in notification area"
+                        debug_text = debug_text[:75]
+                        if not self._closing and not self._radar_stop.is_set():
+                            self.root.after(0, lambda msg=debug_text: self.radar_status.set(f"ON • OCR reading: {msg}"))
 
-                now_status = time.time()
-                if now_status - self._last_ocr_status_at >= 2.0:
-                    self._last_ocr_status_at = now_status
-                    debug_text = re.sub(r"\s+", " ", recognized).strip()
-                    if not debug_text:
-                        debug_text = "no text recognized in notification area"
-                    debug_text = debug_text[:75]
-                    self.root.after(0, lambda msg=debug_text: self.radar_status.set(f"ON • OCR reading: {msg}"))
+                    if self._radar_stop.is_set() or self._closing:
+                        break
 
-                # Do not run a second enlarged OCR pass on every frame:
-                # that was a major source of CPU spikes and Fortnite stutter.
+                    if re.search(r"\\bspawn(?:ed)?\\b", normalized):
+                        text_boxes = []
+                        for item in words:
+                            if len(item) < 2 or not str(item[1]).strip():
+                                continue
+                            pts = item[0]
+                            xs = [float(p[0]) for p in pts]
+                            ys = [float(p[1]) for p in pts]
+                            text_boxes.append((min(xs), min(ys), max(xs), max(ys)))
 
-                if self._radar_stop.is_set() or self._closing:
-                    break
-
-                if re.search(r"\bspawn(?:ed)?\b", normalized):
-                    text_boxes = []
-                    for item in words:
-                        if len(item) < 2 or not str(item[1]).strip():
-                            continue
-                        pts = item[0]
-                        xs = [float(p[0]) for p in pts]
-                        ys = [float(p[1]) for p in pts]
-                        text_boxes.append((min(xs), min(ys), max(xs), max(ys)))
-
-                    if text_boxes:
-                        x0 = max(0, int(min(b[0] for b in text_boxes) - 55))
-                        y0 = max(0, int(min(b[1] for b in text_boxes) - 35))
-                        x1 = min(roi.width, int(max(b[2] for b in text_boxes) + 55))
-                        y1 = min(roi.height, int(max(b[3] for b in text_boxes) + 75))
-                        crop = roi.crop((x0, y0, x1, y1))
-                    else:
-                        # OCR found the text but supplied no usable coordinates;
-                        # send only the compact notification region as a fallback.
-                        crop = roi
-
-                    # Upload only the detected notification crop. Keep the full ROI
-                    # only as the fallback when OCR did not provide usable coordinates.
-                    crop_text = recognized or "Spawned"
-
-                    event_key = re.sub(r"\s+", " ", (crop_text or recognized or "Spawned").lower()).strip()
-                    now = time.time()
-                    if event_key != self._last_event_key or now - self._last_event_at > EVENT_COOLDOWN_SECONDS:
-                        if self._radar_stop.is_set() or self._closing:
-                            break
-                        self.root.after(0, lambda msg=event_key[:65]: self.radar_status.set(f"ON • SPAWN DETECTED: {msg} • Uploading…"))
-                        buffer = io.BytesIO()
-                        crop.save(buffer, format="PNG")
-                        image_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
-                        event_id = uuid.uuid4().hex
-                        character_name = ("Spawned: " + crop_text[:110]) if crop_text.strip() else "Spawned"
-                        if self._radar_stop.is_set() or self._closing:
-                            buffer.close()
-                            break
-                        result = post("/api/radar/event", {
-                            "code": self.license_key.get().strip(),
-                            "device_id": device_id(),
-                            "event_id": event_id,
-                            "character_name": character_name,
-                            "image_base64": image_b64
-                        }, timeout=15)
-                        if result.get("ok"):
-                            self._last_event_key, self._last_event_at = event_key, now
-                            self.root.after(0, lambda: self.radar_status.set("ON • Server accepted event; Discord bot delivery is a separate step."))
+                        if text_boxes:
+                            x0 = max(0, int(min(b[0] for b in text_boxes) - 55))
+                            y0 = max(0, int(min(b[1] for b in text_boxes) - 35))
+                            x1 = min(roi.width, int(max(b[2] for b in text_boxes) + 55))
+                            y1 = min(roi.height, int(max(b[3] for b in text_boxes) + 75))
+                            crop = roi.crop((x0, y0, x1, y1))
                         else:
-                            err = result.get("error", "Server rejected the event")
-                            self.root.after(0, lambda msg=err: self.radar_status.set(f"ON • Discord delivery failed: {msg[:90]}"))
-                        buffer.close()
+                            crop = roi
+
+                        crop_text = recognized or "Spawned"
+                        event_key = re.sub(r"\\s+", " ", crop_text.lower()).strip()
+                        now = time.time()
+                        if event_key != self._last_event_key or now - self._last_event_at > EVENT_COOLDOWN_SECONDS:
+                            if self._radar_stop.is_set() or self._closing:
+                                break
+                            buffer = io.BytesIO()
+                            try:
+                                crop.save(buffer, format="PNG")
+                                image_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+                                if self._radar_stop.is_set() or self._closing:
+                                    break
+                                event_id = uuid.uuid4().hex
+                                character_name = "Spawned: " + crop_text[:110] if crop_text.strip() else "Spawned"
+                                result = post("/api/radar/event", {
+                                    "code": self.license_key.get().strip(),
+                                    "device_id": device_id(),
+                                    "event_id": event_id,
+                                    "character_name": character_name,
+                                    "image_base64": image_b64
+                                }, timeout=15)
+                            finally:
+                                buffer.close()
+
+                            if not self._closing and not self._radar_stop.is_set():
+                                if result.get("ok"):
+                                    self._last_event_key, self._last_event_at = event_key, now
+                                    self.root.after(0, lambda: self.radar_status.set(
+                                        "ON • Server accepted event; Discord bot delivery is a separate step."
+                                    ))
+                                else:
+                                    err = result.get("error", "Server rejected the event")
+                                    self.root.after(0, lambda msg=err: self.radar_status.set(
+                                        f"ON • Discord delivery failed: {msg[:90]}"
+                                    ))
                 except Exception as exc:
                     if not self._closing and not self._radar_stop.is_set():
                         self.root.after(0, lambda e=str(exc): self.radar_status.set(f"ON • Radar warning: {e[:100]}"))
