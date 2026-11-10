@@ -702,13 +702,13 @@ class AzToolApp:
             self.afk_status.set("AFK is OFF.")
 
     def _afk_input_loop(self):
-        # Move in a fixed W -> A -> S -> D sequence; hold each movement key for 0.5 seconds.
+        # Move in a fixed W -> A -> S -> D sequence; hold W for 0.35 seconds and keep the other movement timings unchanged.
         # P keeps its one-second cadence and ESC is tapped every ten seconds.
         # Always release a held movement key, including when AFK is stopped or an error occurs.
         key_codes = {"W": 0x57, "A": 0x41, "S": 0x53, "D": 0x44, "P": 0x50, "ESC": 0x1B}
         movement_sequence = ("W", "A", "S", "D")
         movement_index = 0
-        movement_hold_seconds = 0.5
+        movement_hold_seconds = 0.35
         user32 = ctypes.windll.user32
         next_p = time.monotonic()
         next_esc = time.monotonic() + 10.0
@@ -751,7 +751,7 @@ class AzToolApp:
                     break
 
                 # Auxiliary P/ESC taps happen between movement presses so they
-                # cannot extend the 0.5-second movement-key hold duration.
+                # cannot extend the movement-key hold duration.
                 now = time.monotonic()
                 if now >= next_p:
                     tap_key(key_codes["P"], 0.06)
