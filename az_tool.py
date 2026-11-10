@@ -6,7 +6,6 @@ import io
 import base64
 import uuid
 import re
-import random
 import threading
 import time
 import tkinter as tk
@@ -703,9 +702,13 @@ class AzToolApp:
             self.afk_status.set("AFK is OFF.")
 
     def _afk_input_loop(self):
-        # Tap P on its one-second cadence and ESC once every ten seconds while AFK is active.
-        # Movement keys are held for one second and all held keys are released on stop/focus change.
+        # Move in a fixed W -> A -> S -> D sequence; hold each movement key for 0.5 seconds.
+        # P keeps its one-second cadence and ESC is tapped every ten seconds.
+        # Always release a held movement key, including when AFK is stopped or an error occurs.
         key_codes = {"W": 0x57, "A": 0x41, "S": 0x53, "D": 0x44, "P": 0x50, "ESC": 0x1B}
+        movement_sequence = ("W", "A", "S", "D")
+        movement_index = 0
+        movement_hold_seconds = 0.5
         user32 = ctypes.windll.user32
         next_p = time.monotonic()
         next_esc = time.monotonic() + 10.0
@@ -734,22 +737,28 @@ class AzToolApp:
                     continue
 
                 self.root.after(0, lambda: self.afk_status.set("AFK is ON."))
-                key = random.choice(("W", "A", "S", "D"))
+                key = movement_sequence[movement_index]
+                movement_index = (movement_index + 1) % len(movement_sequence)
                 held_vk = key_codes[key]
                 user32.keybd_event(held_vk, 0, 0, 0)
-                hold_until = time.monotonic() + 1.0
-                while not self._afk_stop.is_set() and time.monotonic() < hold_until:
-                    now = time.monotonic()
-                    if now >= next_p:
-                        tap_key(key_codes["P"], 0.06)
-                        next_p = time.monotonic() + 1.0
-                    if time.monotonic() >= next_esc:
-                        tap_key(key_codes["ESC"], 0.06)
-                        next_esc = time.monotonic() + 10.0
-                    self._afk_stop.wait(min(0.04, max(0.0, hold_until - time.monotonic())))
-                user32.keybd_event(held_vk, 0, 0x0002, 0)
-                held_vk = None
-                self._afk_stop.wait(random.uniform(0.08, 0.2))
+                try:
+                    self._afk_stop.wait(movement_hold_seconds)
+                finally:
+                    user32.keybd_event(held_vk, 0, 0x0002, 0)
+                    held_vk = None
+
+                if self._afk_stop.is_set():
+                    break
+
+                # Auxiliary P/ESC taps happen between movement presses so they
+                # cannot extend the 0.5-second movement-key hold duration.
+                now = time.monotonic()
+                if now >= next_p:
+                    tap_key(key_codes["P"], 0.06)
+                    next_p = time.monotonic() + 1.0
+                if time.monotonic() >= next_esc:
+                    tap_key(key_codes["ESC"], 0.06)
+                    next_esc = time.monotonic() + 10.0
             except Exception as exc:
                 if held_vk is not None:
                     try:
