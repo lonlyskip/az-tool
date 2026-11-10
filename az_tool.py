@@ -708,7 +708,7 @@ class AzToolApp:
         key_codes = {"W": 0x57, "A": 0x41, "S": 0x53, "D": 0x44, "P": 0x50, "ESC": 0x1B}
         movement_sequence = ("W", "A", "S", "D")
         movement_index = 0
-        movement_hold_seconds = 0.35
+        movement_hold_seconds = {"W": 0.35, "A": 0.5, "S": 0.5, "D": 0.5}
         user32 = ctypes.windll.user32
         next_p = time.monotonic()
         next_esc = time.monotonic() + 10.0
@@ -742,7 +742,7 @@ class AzToolApp:
                 held_vk = key_codes[key]
                 user32.keybd_event(held_vk, 0, 0, 0)
                 try:
-                    self._afk_stop.wait(movement_hold_seconds)
+                    self._afk_stop.wait(movement_hold_seconds[key])
                 finally:
                     user32.keybd_event(held_vk, 0, 0x0002, 0)
                     held_vk = None
