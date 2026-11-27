@@ -6,6 +6,7 @@ import io
 import base64
 import uuid
 import re
+import subprocess
 import threading
 import time
 import tkinter as tk
@@ -15,7 +16,7 @@ from tkinter import messagebox
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone
-from PIL import Image, ImageEnhance, ImageTk
+from PIL import Image, ImageEnhance, ImageTk, ImageChops, ImageStat
 
 APP_NAME = "az tool"
 LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
@@ -56,6 +57,31 @@ def format_money(amount_qi):
         amount /= 1000
         unit_index += 1
     return f"{amount:,.2f} {MONEY_UNITS[unit_index]}"
+
+
+AFK_LOADING_TERMS = (
+    "loading", "connecting", "matchmaking", "joining server",
+    "traveling to", "travelling to", "checking for updates",
+    "logging in", "waiting for", "preparing"
+)
+AFK_LOBBY_TERMS = (
+    "battle royale", "zero build", "item shop", "locker",
+    "quests", "v-bucks", "vbucks", "party up", "ready up",
+    "discover", "play"
+)
+
+
+def classify_afk_screen(text):
+    """Classify OCR text conservatively; unknown screens never count as a connection."""
+    normalized = re.sub(r"[^a-z0-9 ]", " ", str(text or "").lower())
+    normalized = re.sub(r"\\s+", " ", normalized).strip()
+    if not normalized:
+        return "unknown"
+    if any(term in normalized for term in AFK_LOADING_TERMS):
+        return "loading"
+    if any(term in normalized for term in AFK_LOBBY_TERMS):
+        return "lobby"
+    return "gameplay"
 
 
 def runtime_base_dir():
@@ -257,6 +283,7 @@ class AzToolApp:
         self.state.pop("afk_colors", None)
         self.afk_earnings_status = tk.StringVar(value="المدة: 00:00:00 | الدخل: 0.00 QI")
         self._afk_thread = None
+        self._afk_monitor_thread = None
         self._hotkey_thread = None
         self._hotkey_thread_id = None
         self._hotkey_ready = threading.Event()
@@ -912,6 +939,8 @@ class AzToolApp:
                 pass
             self._afk_thread = threading.Thread(target=self._afk_input_loop, daemon=True)
             self._afk_thread.start()
+            self._afk_monitor_thread = threading.Thread(target=self._afk_monitor_loop, daemon=True)
+            self._afk_monitor_thread.start()
             self.afk_button.config(text="STOP AFK  [F5]", bg=RED, fg="white")
             self.afk_status.set("AFK is ON.")
         else:
@@ -923,6 +952,199 @@ class AzToolApp:
                 pass
             self.afk_button.config(text="START AFK  [F5]", bg=GREEN, fg="#07110d")
             self.afk_status.set("AFK is OFF. Saving the final earnings interval...")
+
+
+    def _fortnite_process_running(self):
+        """Return True/False when tasklist can be checked, otherwise None."""
+        try:
+            completed = subprocess.run(
+                ["tasklist", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
+            if completed.returncode != 0:
+                return None
+            output = (completed.stdout or "").lower()
+            return "fortniteclient-win64-shipping" in output
+        except Exception:
+            return None
+
+    def _send_afk_notification(self, event_type):
+        """Queue one AFK state transition for the linked Discord account."""
+        if not self._link_verified:
+            self.root.after(0, lambda: self.afk_status.set(
+                "AFK monitor: اربط حساب Discord لتلقي إشعارات الطرد والعودة."
+            ))
+            return False
+
+        try:
+            result = post("/api/afk/event", {
+                "code": self.license_key.get().strip(),
+                "device_id": device_id(),
+                "event_id": uuid.uuid4().hex,
+                "event_type": event_type
+            }, timeout=12)
+            if not isinstance(result, dict) or not result.get("ok"):
+                raise RuntimeError(
+                    result.get("error", "Worker did not accept the AFK notification.")
+                    if isinstance(result, dict) else "Invalid Worker response."
+                )
+            labels = {
+                "kick_detected": "تم اكتشاف خروج من المباراة. جارٍ متابعة حالة اللعبة...",
+                "finding_server": "Finding Server | جارٍ العثور على الخادم...",
+                "connected": "تم الاتصال بنجاح!",
+                "reconnect_failed": "تعذر إعادة الاتصال."
+            }
+            message = labels.get(event_type, "تم إرسال إشعار AFK.")
+            self.root.after(0, lambda msg=message: self.afk_status.set(msg))
+            return True
+        except Exception as exc:
+            message = str(exc)[:110]
+            self.root.after(0, lambda msg=message: self.afk_status.set(
+                f"تعذر إرسال إشعار AFK إلى Discord: {msg}"
+            ))
+            return False
+
+    def _afk_monitor_loop(self):
+        """
+        Monitor Fortnite only while AFK is enabled.
+        It never presses Play, joins matchmaking, or attempts to reconnect.
+        A loading -> lobby transition is treated as a possible kick.
+        A return is confirmed only by non-lobby gameplay OCR plus repeated screen motion.
+        """
+        try:
+            import mss
+            import numpy as np
+            from rapidocr_onnxruntime import RapidOCR
+            import win32gui
+            ocr = RapidOCR()
+            sct = mss.mss()
+        except Exception as exc:
+            if not self._closing and not self._afk_stop.is_set():
+                message = f"{type(exc).__name__}: {exc}"[:120]
+                self.root.after(0, lambda msg=message: self.afk_status.set(
+                    f"تعذر تشغيل مراقبة AFK: {msg}"
+                ))
+            return
+
+        loading_seen_at = None
+        kick_reported = False
+        lobby_since = None
+        motion_streak = 0
+        previous_small = None
+        had_game_process = False
+
+        try:
+            while not self._afk_stop.is_set() and not self._closing:
+                try:
+                    running = self._fortnite_process_running()
+
+                    if running is False:
+                        if had_game_process:
+                            self._send_afk_notification("reconnect_failed")
+                            had_game_process = False
+                            loading_seen_at = None
+                            kick_reported = False
+                            lobby_since = None
+                            motion_streak = 0
+                            previous_small = None
+                        self._afk_stop.wait(2.0)
+                        continue
+
+                    if running is None:
+                        self._afk_stop.wait(2.0)
+                        continue
+
+                    had_game_process = True
+                    hwnd = win32gui.GetForegroundWindow()
+                    title = win32gui.GetWindowText(hwnd).lower()
+                    if "fortnite" not in title:
+                        self._afk_stop.wait(1.5)
+                        continue
+
+                    monitor = sct.monitors[1]
+                    shot = sct.grab(monitor)
+                    frame = Image.frombytes("RGB", shot.size, shot.rgb)
+
+                    ocr_width = min(1280, frame.width)
+                    ocr_height = max(1, int(frame.height * (ocr_width / frame.width)))
+                    ocr_frame = frame.resize((ocr_width, ocr_height))
+                    detections, _elapsed = ocr(np.array(ocr_frame))
+                    recognized = " ".join(
+                        str(item[1]) for item in (detections or [])
+                        if len(item) > 1 and str(item[1]).strip()
+                    )
+                    screen_state = classify_afk_screen(recognized)
+                    now = time.monotonic()
+
+                    if screen_state == "loading":
+                        loading_seen_at = now
+                        if not kick_reported:
+                            lobby_since = None
+                            motion_streak = 0
+
+                    elif (
+                        screen_state == "lobby"
+                        and loading_seen_at is not None
+                        and now - loading_seen_at <= 300
+                    ):
+                        if not kick_reported:
+                            kick_reported = True
+                            lobby_since = now
+                            self._send_afk_notification("kick_detected")
+                            self._send_afk_notification("finding_server")
+
+                    elif kick_reported and screen_state == "lobby":
+                        if lobby_since is None:
+                            lobby_since = now
+                        elif now - lobby_since >= 600:
+                            self._send_afk_notification("reconnect_failed")
+                            kick_reported = False
+                            loading_seen_at = None
+                            lobby_since = None
+                            motion_streak = 0
+                            previous_small = None
+
+                    elif kick_reported and screen_state == "gameplay":
+                        small = frame.resize((160, 90)).convert("L")
+                        if previous_small is not None:
+                            difference = ImageChops.difference(small, previous_small)
+                            motion_score = ImageStat.Stat(difference).mean[0]
+                            if motion_score >= 5.0:
+                                motion_streak += 1
+                            else:
+                                motion_streak = 0
+                        previous_small = small
+
+                        if motion_streak >= 2:
+                            self._send_afk_notification("connected")
+                            kick_reported = False
+                            loading_seen_at = None
+                            lobby_since = None
+                            motion_streak = 0
+                            previous_small = None
+
+                    elif kick_reported:
+                        motion_streak = 0
+
+                    if loading_seen_at is not None and now - loading_seen_at > 300 and not kick_reported:
+                        loading_seen_at = None
+
+                except Exception as exc:
+                    if not self._closing and not self._afk_stop.is_set():
+                        message = str(exc)[:100]
+                        self.root.after(0, lambda msg=message: self.afk_status.set(
+                            f"AFK monitor warning: {msg}"
+                        ))
+
+                self._afk_stop.wait(2.5)
+        finally:
+            try:
+                sct.close()
+            except Exception:
+                pass
 
     def _afk_input_loop(self):
         # Move in a fixed W -> A -> S -> D sequence; hold W for 0.35 seconds and keep the other movement timings unchanged.
