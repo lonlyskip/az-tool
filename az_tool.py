@@ -230,8 +230,8 @@ class AzToolApp:
     def __init__(self, root):
         self.root = root
         self.root.title(APP_NAME)
-        self.root.geometry("620x850")
-        self.root.minsize(580, 780)
+        self.root.geometry("680x1050")
+        self.root.minsize(620, 900)
         self.root.configure(bg=BG)
         self._background_original = None
         self._background_photo = None
