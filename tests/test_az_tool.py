@@ -64,6 +64,15 @@ class UtilityTests(unittest.TestCase):
 
 
 
+    def test_afk_screen_classifier_detects_loading_lobby_and_gameplay(self):
+        self.assertEqual(az_tool.classify_afk_screen("Connecting to server..."), "loading")
+        self.assertEqual(az_tool.classify_afk_screen("Battle Royale  PLAY  Locker"), "lobby")
+        self.assertEqual(az_tool.classify_afk_screen("Gameplay - Health 100"), "gameplay")
+        self.assertEqual(az_tool.classify_afk_screen(""), "unknown")
+
+    def test_afk_screen_classifier_does_not_treat_gameplay_as_lobby(self):
+        self.assertEqual(az_tool.classify_afk_screen("Gameplay"), "gameplay")
+
     def test_notification_region_is_compact_and_clamped(self):
         monitor = {"left": 100, "top": 50, "width": 1920, "height": 1080}
         region = az_tool.notification_region(monitor)
