@@ -59,6 +59,17 @@ def format_money(amount_qi):
     return f"{amount:,.2f} {MONEY_UNITS[unit_index]}"
 
 
+def format_expected_money(amount_qi):
+    """Format forecast output in the largest available unit without changing tracked money."""
+    amount = max(0.0, float(amount_qi or 0))
+    unit_index = 0
+    while amount >= 1000 and unit_index < len(MONEY_UNITS) - 1:
+        amount /= 1000
+        unit_index += 1
+    number = f"{amount:,.2f}".rstrip("0").rstrip(".")
+    return f"{number}{MONEY_UNITS[unit_index].lower()}"
+
+
 AFK_LOADING_TERMS = (
     "loading", "connecting", "matchmaking", "joining server",
     "traveling to", "travelling to", "checking for updates",
@@ -279,6 +290,13 @@ class AzToolApp:
         if saved_income_unit not in MONEY_UNITS:
             saved_income_unit = "QI"
         self.income_unit = tk.StringVar(value=saved_income_unit)
+        # Forecast calculator has its own inputs and never touches tracked earnings.
+        self.forecast_income = tk.StringVar(value="900")
+        self.forecast_unit = tk.StringVar(value="SX")
+        self.forecast_days = tk.StringVar(value="0")
+        self.forecast_hours = tk.StringVar(value="0")
+        self.forecast_minutes = tk.StringVar(value="0")
+        self.forecast_result = tk.StringVar(value="أدخل الدخل والمدة ثم اضغط احسب.")
         self._afk_last_sync_elapsed = 0.0
         self._afk_pending_sync = None
         # Remove obsolete settings from older versions.
@@ -505,6 +523,47 @@ class AzToolApp:
         self.button(self.afk_card, "إعادة تعيين التجميع الحالي",
                     self.reset_afk_earnings, color="#29314a").pack(fill="x", pady=(10, 0))
 
+        self.forecast_card = self.card(
+            self.gated_frame, "حاسبة الدخل المتوقع",
+            "حاسبة مستقلة — لا تغيّر رصيد التجميع أو إحصائياتك."
+        )
+        forecast_income_row = tk.Frame(self.forecast_card, bg=PANEL)
+        forecast_income_row.pack(fill="x", pady=(4, 8))
+        self.label(forecast_income_row, "الدخل بالثانية", MUTED, 9).pack(side="left", padx=(0, 8))
+        self.entry(forecast_income_row, self.forecast_income).pack(side="left", fill="x", expand=True, ipady=6)
+        self.forecast_unit_menu = tk.OptionMenu(forecast_income_row, self.forecast_unit, *MONEY_UNITS)
+        self.forecast_unit_menu.configure(
+            bg=PANEL_2, fg=TEXT, activebackground=ACCENT,
+            activeforeground="white", relief="flat",
+            highlightthickness=0, width=5
+        )
+        self.forecast_unit_menu["menu"].configure(
+            bg=PANEL_2, fg=TEXT, activebackground=ACCENT,
+            activeforeground="white"
+        )
+        self.forecast_unit_menu.pack(side="left", padx=(8, 0))
+        self.label(self.forecast_card, "المدة — تقدر تجمع أيام وساعات ودقائق مع بعض", MUTED, 9).pack(anchor="w", pady=(4, 6))
+        forecast_time_row = tk.Frame(self.forecast_card, bg=PANEL)
+        forecast_time_row.pack(fill="x")
+        for column, (caption, variable) in enumerate((
+            ("أيام", self.forecast_days),
+            ("ساعات", self.forecast_hours),
+            ("دقائق", self.forecast_minutes),
+        )):
+            cell = tk.Frame(forecast_time_row, bg=PANEL)
+            cell.pack(side="left", fill="x", expand=True, padx=(0 if column == 0 else 6, 0))
+            self.label(cell, caption, MUTED, 9).pack(anchor="w")
+            self.entry(cell, variable).pack(fill="x", ipady=6)
+        self.button(
+            self.forecast_card, "احسب الدخل المتوقع",
+            self.calculate_expected_income, color=ACCENT
+        ).pack(fill="x", pady=(10, 8))
+        tk.Label(
+            self.forecast_card, textvariable=self.forecast_result,
+            bg=PANEL, fg=GREEN, font=("Segoe UI", 11, "bold"),
+            wraplength=520, justify="left"
+        ).pack(anchor="w")
+
         self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • Notification-area detection")
         radar_card = self.radar_card
         self.radar_button = self.button(radar_card, "START RADAR", self.toggle_radar, color=GREEN, fg="#07110d")
@@ -534,7 +593,7 @@ class AzToolApp:
                 self.discord_card.pack(fill="x", padx=24, pady=8)
         else:
             self.discord_card.pack_forget()
-        for card in (self.afk_card, self.radar_card):
+        for card in (self.afk_card, self.forecast_card, self.radar_card):
             if not card.winfo_manager():
                 card.pack(fill="x", padx=24, pady=8)
         if self._link_verified:
@@ -549,6 +608,7 @@ class AzToolApp:
         self._discord_skipped = False
         self.discord_card.pack_forget()
         self.afk_card.pack_forget()
+        self.forecast_card.pack_forget()
         self.radar_card.pack_forget()
 
     def activate(self):
@@ -764,6 +824,30 @@ class AzToolApp:
             user32.UnregisterHotKey(None, 0xA501)
         except Exception as exc:
             self.root.after(0, lambda err=str(exc): self.afk_status.set("Global F5 error: " + err[:90]))
+
+    def calculate_expected_income(self):
+        """Calculate a separate forecast; do not persist or sync it to the money ledger."""
+        try:
+            income = float(self.forecast_income.get().strip().replace(",", ""))
+            unit = self.forecast_unit.get().strip().upper()
+            if income <= 0:
+                raise ValueError("أدخل دخلًا أكبر من صفر.")
+            if unit not in UNIT_TO_QI:
+                raise ValueError("اختر وحدة دخل صحيحة.")
+            days = float(self.forecast_days.get().strip() or 0)
+            hours = float(self.forecast_hours.get().strip() or 0)
+            minutes = float(self.forecast_minutes.get().strip() or 0)
+            if min(days, hours, minutes) < 0:
+                raise ValueError("المدة لا يمكن أن تكون سالبة.")
+            total_seconds = days * 86400 + hours * 3600 + minutes * 60
+            if total_seconds <= 0:
+                raise ValueError("أدخل مدة أكبر من صفر.")
+            total_qi = income_to_qi(income, unit) * total_seconds
+            self.forecast_result.set(
+                f"الدخل المتوقع: {format_expected_money(total_qi)}"
+            )
+        except (ValueError, TypeError, OverflowError) as exc:
+            self.forecast_result.set(str(exc) or "تأكد من صحة الدخل والمدة.")
 
     def save_afk_settings(self):
         if self.afk_enabled:
