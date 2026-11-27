@@ -66,7 +66,7 @@ AFK_LOADING_TERMS = (
 )
 AFK_LOBBY_TERMS = (
     "battle royale", "zero build", "item shop", "locker",
-    "quests", "v-bucks", "vbucks", "party up", "ready up",
+    "quests", "v bucks", "vbucks", "party up", "ready up",
     "discover", "play"
 )
 
@@ -74,12 +74,15 @@ AFK_LOBBY_TERMS = (
 def classify_afk_screen(text):
     """Classify OCR text conservatively; unknown screens never count as a connection."""
     normalized = re.sub(r"[^a-z0-9 ]", " ", str(text or "").lower())
-    normalized = re.sub(r"\\s+", " ", normalized).strip()
+    normalized = re.sub(r"\s+", " ", normalized).strip()
     if not normalized:
         return "unknown"
     if any(term in normalized for term in AFK_LOADING_TERMS):
         return "loading"
-    if any(term in normalized for term in AFK_LOBBY_TERMS):
+    if any(
+        (term in normalized) if term != "play" else bool(re.search(r"\bplay\b", normalized))
+        for term in AFK_LOBBY_TERMS
+    ):
         return "lobby"
     return "gameplay"
 
