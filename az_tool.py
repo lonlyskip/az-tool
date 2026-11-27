@@ -282,7 +282,11 @@ class AzToolApp:
         self.state.pop('discord_skipped', None)
         self.afk_enabled = False
         self._afk_stop = threading.Event()
-        self._afk_elapsed = 0.0
+        # Keep the collection counter across AFK stop/start and app restarts.
+        try:
+            self._afk_elapsed = max(0.0, float(self.state.get("afk_elapsed_seconds", 0.0)))
+        except (TypeError, ValueError):
+            self._afk_elapsed = 0.0
         self._afk_last_tick = None
         self._afk_earnings_thread = None
         self.base_income = tk.StringVar(value=str(self.state.get("afk_base_income", "1")))
@@ -297,7 +301,12 @@ class AzToolApp:
         self.forecast_hours = tk.StringVar(value="0")
         self.forecast_minutes = tk.StringVar(value="0")
         self.forecast_result = tk.StringVar(value="أدخل الدخل والمدة ثم اضغط احسب.")
-        self._afk_last_sync_elapsed = 0.0
+        try:
+            self._afk_last_sync_elapsed = max(
+                0.0, float(self.state.get("afk_last_sync_elapsed", self._afk_elapsed))
+            )
+        except (TypeError, ValueError):
+            self._afk_last_sync_elapsed = self._afk_elapsed
         self._afk_pending_sync = None
         # Remove obsolete settings from older versions.
         self.state.pop("afk_rebirth", None)
@@ -898,6 +907,9 @@ class AzToolApp:
             ):
                 raise RuntimeError(result.get("error", "Worker rejected the earnings event."))
             self._afk_last_sync_elapsed = float(pending["end_elapsed"])
+            self.state["afk_elapsed_seconds"] = self._afk_elapsed
+            self.state["afk_last_sync_elapsed"] = self._afk_last_sync_elapsed
+            save_state(self.state)
             self._afk_pending_sync = None
             if through_elapsed - self._afk_last_sync_elapsed > 0.001:
                 return self._sync_afk_earnings(through_elapsed)
@@ -934,6 +946,10 @@ class AzToolApp:
                     ))
                     if self._afk_elapsed - self._afk_last_sync_elapsed >= 10.0:
                         self._sync_afk_earnings(self._afk_elapsed)
+                    # Persist the visible counter even when AFK is paused later.
+                    self.state["afk_elapsed_seconds"] = self._afk_elapsed
+                    self.state["afk_last_sync_elapsed"] = self._afk_last_sync_elapsed
+                    save_state(self.state)
                 except Exception as exc:
                     if not self._closing:
                         message = str(exc)[:80]
@@ -983,6 +999,9 @@ class AzToolApp:
             self._afk_last_tick = None
             self._afk_last_sync_elapsed = 0.0
             self._afk_pending_sync = None
+            self.state["afk_elapsed_seconds"] = 0.0
+            self.state["afk_last_sync_elapsed"] = 0.0
+            save_state(self.state)
             if not self._closing:
                 self.root.after(0, lambda: self.afk_earnings_status.set(
                     "المدة داخل Fortnite: 00:00:00 | الدخل التقديري: 0.00 QI"
@@ -1014,8 +1033,7 @@ class AzToolApp:
             if not self.save_afk_settings():
                 return
             self.afk_enabled = True
-            self._afk_elapsed = 0.0
-            self._afk_last_sync_elapsed = 0.0
+            # Resuming AFK must not reset the collection counter.
             self._afk_last_tick = None
             self._afk_stop.clear()
             self._afk_earnings_thread = threading.Thread(target=self._afk_earnings_loop, daemon=True)
