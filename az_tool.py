@@ -461,17 +461,16 @@ class AzToolApp:
         settings.pack(fill="x", pady=(12, 0))
         self.label(settings, "الدخل بالثانية", MUTED, 9).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=4)
         self.entry(settings, self.base_income).grid(row=0, column=1, sticky="ew", pady=4, ipady=6)
-        self.label(settings, "وحدة الدخل", MUTED, 9).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
         self.income_unit_menu = tk.OptionMenu(settings, self.income_unit, *MONEY_UNITS)
         self.income_unit_menu.configure(bg=PANEL_2, fg=TEXT, activebackground=ACCENT,
                                          activeforeground="white", relief="flat",
-                                         highlightthickness=0)
+                                         highlightthickness=0, width=5)
         self.income_unit_menu["menu"].configure(bg=PANEL_2, fg=TEXT,
                                                 activebackground=ACCENT,
                                                 activeforeground="white")
-        self.income_unit_menu.grid(row=1, column=1, sticky="ew", pady=4)
+        self.income_unit_menu.grid(row=0, column=2, sticky="ew", padx=(8, 0), pady=4)
         settings.columnconfigure(1, weight=1)
-        self.button(settings, "حفظ الدخل والوحدة", self.save_afk_settings, color="#29314a").grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 4))
+        self.button(settings, "حفظ الدخل والوحدة", self.save_afk_settings, color="#29314a").grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 4))
         tk.Label(self.afk_card, textvariable=self.afk_earnings_status, bg=PANEL, fg=GREEN, font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(5, 0))
         self.button(self.afk_card, "إعادة تعيين التجميع الحالي",
                     self.reset_afk_earnings, color="#29314a").pack(fill="x", pady=(10, 0))
