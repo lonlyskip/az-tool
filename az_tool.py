@@ -27,12 +27,35 @@ POLL_SECONDS = 0.50
 EVENT_COOLDOWN_SECONDS = 1.5
 
 
+MONEY_UNITS = ("QI", "SX", "SP", "OC", "NO")
+UNIT_TO_QI = {unit: 1000 ** index for index, unit in enumerate(MONEY_UNITS)}
+
+
 def calculate_afk_earnings(income_per_second, elapsed_seconds):
     """Estimate earnings using the editable per-second income only."""
     income_per_second = float(income_per_second)
     if income_per_second <= 0:
         raise ValueError("الدخل بالثانية لازم يكون أكبر من صفر.")
     return income_per_second * max(0.0, float(elapsed_seconds))
+
+
+def income_to_qi(amount, unit):
+    unit = str(unit or "").strip().upper()
+    if unit not in UNIT_TO_QI:
+        raise ValueError("اختر وحدة دخل صحيحة: QI أو SX أو SP أو OC أو NO.")
+    amount = float(amount)
+    if amount < 0:
+        raise ValueError("المبلغ لا يمكن أن يكون سالباً.")
+    return amount * UNIT_TO_QI[unit]
+
+
+def format_money(amount_qi):
+    amount = max(0.0, float(amount_qi or 0))
+    unit_index = 0
+    while amount >= 1000 and unit_index < len(MONEY_UNITS) - 1:
+        amount /= 1000
+        unit_index += 1
+    return f"{amount:,.2f} {MONEY_UNITS[unit_index]}"
 
 
 def runtime_base_dir():
@@ -223,10 +246,16 @@ class AzToolApp:
         self._afk_last_tick = None
         self._afk_earnings_thread = None
         self.base_income = tk.StringVar(value=str(self.state.get("afk_base_income", "1")))
+        saved_income_unit = str(self.state.get("afk_income_unit", "QI")).strip().upper()
+        if saved_income_unit not in MONEY_UNITS:
+            saved_income_unit = "QI"
+        self.income_unit = tk.StringVar(value=saved_income_unit)
+        self._afk_last_sync_elapsed = 0.0
+        self._afk_pending_sync = None
         # Remove obsolete settings from older versions.
         self.state.pop("afk_rebirth", None)
         self.state.pop("afk_colors", None)
-        self.afk_earnings_status = tk.StringVar(value="المدة: 00:00:00 | الدخل: 0")
+        self.afk_earnings_status = tk.StringVar(value="المدة: 00:00:00 | الدخل: 0.00 QI")
         self._afk_thread = None
         self._hotkey_thread = None
         self._hotkey_thread_id = None
@@ -432,9 +461,20 @@ class AzToolApp:
         settings.pack(fill="x", pady=(12, 0))
         self.label(settings, "الدخل بالثانية", MUTED, 9).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=4)
         self.entry(settings, self.base_income).grid(row=0, column=1, sticky="ew", pady=4, ipady=6)
+        self.label(settings, "وحدة الدخل", MUTED, 9).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
+        self.income_unit_menu = tk.OptionMenu(settings, self.income_unit, *MONEY_UNITS)
+        self.income_unit_menu.configure(bg=PANEL_2, fg=TEXT, activebackground=ACCENT,
+                                         activeforeground="white", relief="flat",
+                                         highlightthickness=0)
+        self.income_unit_menu["menu"].configure(bg=PANEL_2, fg=TEXT,
+                                                activebackground=ACCENT,
+                                                activeforeground="white")
+        self.income_unit_menu.grid(row=1, column=1, sticky="ew", pady=4)
         settings.columnconfigure(1, weight=1)
-        self.button(settings, "حفظ الدخل", self.save_afk_settings, color="#29314a").grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 4))
+        self.button(settings, "حفظ الدخل والوحدة", self.save_afk_settings, color="#29314a").grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 4))
         tk.Label(self.afk_card, textvariable=self.afk_earnings_status, bg=PANEL, fg=GREEN, font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(5, 0))
+        self.button(self.afk_card, "إعادة تعيين التجميع الحالي",
+                    self.reset_afk_earnings, color="#29314a").pack(fill="x", pady=(10, 0))
 
         self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • Notification-area detection")
         radar_card = self.radar_card
@@ -697,39 +737,152 @@ class AzToolApp:
             self.root.after(0, lambda err=str(exc): self.afk_status.set("Global F5 error: " + err[:90]))
 
     def save_afk_settings(self):
+        if self.afk_enabled:
+            messagebox.showwarning("إعدادات AFK", "أوقف AFK قبل تعديل قيمة الدخل أو وحدته.")
+            return False
         try:
             income = float(self.base_income.get().strip())
             calculate_afk_earnings(income, 0)
+            unit = self.income_unit.get().strip().upper()
+            if unit not in MONEY_UNITS:
+                raise ValueError("اختر وحدة صحيحة للدخل.")
+            income_to_qi(income, unit)
         except (TypeError, ValueError) as exc:
             messagebox.showerror("إعدادات AFK", str(exc) or "أدخل دخلًا صحيحًا أكبر من صفر.")
             return False
         self.state["afk_base_income"] = str(income)
+        self.state["afk_income_unit"] = unit
         self.state.pop("afk_rebirth", None)
         self.state.pop("afk_colors", None)
         save_state(self.state)
-        self.afk_status.set(f"تم حفظ الدخل: {income:,.4g} في الثانية")
+        self.afk_status.set(f"تم حفظ الدخل: {income:,.4g} {unit} في الثانية")
         return True
+
+    def _sync_afk_earnings(self, through_elapsed):
+        """Send an idempotent earnings interval to the Worker in canonical QI."""
+        through_elapsed = max(0.0, float(through_elapsed))
+        pending = self._afk_pending_sync
+        if pending is None:
+            delta_seconds = through_elapsed - self._afk_last_sync_elapsed
+            if delta_seconds <= 0.001:
+                return True
+            income = float(self.base_income.get())
+            unit = self.income_unit.get().strip().upper()
+            amount_qi = income_to_qi(income * delta_seconds, unit)
+            payload = {
+                "code": self.license_key.get().strip(),
+                "device_id": device_id(),
+                "event_id": uuid.uuid4().hex,
+                "amount": amount_qi,
+                "elapsed_seconds": round(delta_seconds, 3)
+            }
+            pending = {"payload": payload, "end_elapsed": through_elapsed}
+            self._afk_pending_sync = pending
+        try:
+            result = post("/api/money/add", pending["payload"], timeout=12)
+            if isinstance(result, dict) and (
+                result.get("ok") is False or result.get("success") is False
+            ):
+                raise RuntimeError(result.get("error", "Worker rejected the earnings event."))
+            self._afk_last_sync_elapsed = float(pending["end_elapsed"])
+            self._afk_pending_sync = None
+            if through_elapsed - self._afk_last_sync_elapsed > 0.001:
+                return self._sync_afk_earnings(through_elapsed)
+            return True
+        except Exception as exc:
+            if not self._closing:
+                message = str(exc)[:100]
+                self.root.after(0, lambda msg=message: self.afk_status.set(
+                    f"تعذر مزامنة الأرباح مع السيرفر: {msg}"
+                ))
+            return False
 
     def _afk_earnings_loop(self):
         import win32gui
-        while not self._afk_stop.is_set() and not self._closing:
-            try:
-                hwnd = win32gui.GetForegroundWindow()
-                title = win32gui.GetWindowText(hwnd).lower()
-                now = time.monotonic()
-                if "fortnite" in title:
-                    if self._afk_last_tick is not None:
-                        self._afk_elapsed += max(0.0, now - self._afk_last_tick)
-                    self._afk_last_tick = now
-                else:
-                    self._afk_last_tick = None
-                total = calculate_afk_earnings(float(self.base_income.get()), self._afk_elapsed)
-                seconds = int(self._afk_elapsed)
-                clock = f"{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
-                self.root.after(0, lambda c=clock, t=total: self.afk_earnings_status.set(f"المدة داخل Fortnite: {c} | الدخل التقديري: {t:,.2f}"))
-            except Exception as exc:
-                self.root.after(0, lambda e=str(exc): self.afk_earnings_status.set(f"تعذر تحديث الدخل: {e[:80]}"))
-            self._afk_stop.wait(1.0)
+        try:
+            while not self._afk_stop.is_set() and not self._closing:
+                try:
+                    hwnd = win32gui.GetForegroundWindow()
+                    title = win32gui.GetWindowText(hwnd).lower()
+                    now = time.monotonic()
+                    if "fortnite" in title:
+                        if self._afk_last_tick is not None:
+                            self._afk_elapsed += max(0.0, now - self._afk_last_tick)
+                        self._afk_last_tick = now
+                    else:
+                        self._afk_last_tick = None
+                    total = calculate_afk_earnings(float(self.base_income.get()), self._afk_elapsed)
+                    total_qi = income_to_qi(total, self.income_unit.get())
+                    seconds = int(self._afk_elapsed)
+                    clock = f"{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
+                    formatted_total = format_money(total_qi)
+                    self.root.after(0, lambda c=clock, t=formatted_total: self.afk_earnings_status.set(
+                        f"المدة داخل Fortnite: {c} | الدخل التقديري: {t}"
+                    ))
+                    if self._afk_elapsed - self._afk_last_sync_elapsed >= 10.0:
+                        self._sync_afk_earnings(self._afk_elapsed)
+                except Exception as exc:
+                    if not self._closing:
+                        message = str(exc)[:80]
+                        self.root.after(0, lambda e=message: self.afk_earnings_status.set(
+                            f"تعذر تحديث الدخل: {e}"
+                        ))
+                self._afk_stop.wait(1.0)
+        finally:
+            if self._afk_elapsed > self._afk_last_sync_elapsed:
+                self._sync_afk_earnings(self._afk_elapsed)
+
+    def reset_afk_earnings(self):
+        if self.afk_enabled:
+            messagebox.showwarning("إعادة تعيين التجميع", "أوقف AFK أولاً حتى يتم حفظ آخر مبلغ قبل التصفير.")
+            return
+        if not self.license_key.get().strip():
+            messagebox.showerror("إعادة تعيين التجميع", "فعّل الترخيص أولاً.")
+            return
+        if not messagebox.askyesno(
+            "إعادة تعيين التجميع",
+            "سيتم تصفير أرباحك الحالية فقط. إجمالي أرباحك منذ البداية سيبقى محفوظاً. هل تريد المتابعة؟"
+        ):
+            return
+        self.afk_status.set("جاري حفظ آخر مبلغ ثم إعادة التعيين...")
+        threading.Thread(target=self._reset_afk_earnings_worker, daemon=True).start()
+
+    def _reset_afk_earnings_worker(self):
+        try:
+            earnings_thread = self._afk_earnings_thread
+            if earnings_thread and earnings_thread.is_alive():
+                earnings_thread.join(timeout=20)
+                if earnings_thread.is_alive():
+                    raise RuntimeError("تأخر إيقاف مزامنة الأرباح. حاول مرة أخرى.")
+            if self._afk_pending_sync is not None or self._afk_elapsed > self._afk_last_sync_elapsed:
+                if not self._sync_afk_earnings(self._afk_elapsed):
+                    raise RuntimeError("تعذرت مزامنة آخر مبلغ؛ لم يتم تصفير التجميع.")
+            result = post(
+                "/api/money/reset",
+                {"code": self.license_key.get().strip(), "device_id": device_id()},
+                timeout=12
+            )
+            if isinstance(result, dict) and (
+                result.get("ok") is False or result.get("success") is False
+            ):
+                raise RuntimeError(result.get("error", "Worker rejected the reset request."))
+            self._afk_elapsed = 0.0
+            self._afk_last_tick = None
+            self._afk_last_sync_elapsed = 0.0
+            self._afk_pending_sync = None
+            if not self._closing:
+                self.root.after(0, lambda: self.afk_earnings_status.set(
+                    "المدة داخل Fortnite: 00:00:00 | الدخل التقديري: 0.00 QI"
+                ))
+                self.root.after(0, lambda: self.afk_status.set(
+                    "تم تصفير التجميع الحالي. الإجمالي منذ البداية لم يتغير."
+                ))
+        except Exception as exc:
+            if not self._closing:
+                message = str(exc)[:140]
+                self.root.after(0, lambda msg=message: self.afk_status.set(
+                    f"فشل إعادة التعيين: {msg}"
+                ))
 
     def toggle_afk(self):
         if not self.license_key.get().strip():
@@ -738,13 +891,18 @@ class AzToolApp:
         if os.name != "nt":
             messagebox.showerror("AFK", "Automatic key input is supported on Windows only.")
             return
-
-        self.afk_enabled = not self.afk_enabled
-        if self.afk_enabled:
-            if not self.save_afk_settings():
-                self.afk_enabled = False
+        if not self.afk_enabled:
+            if self._afk_earnings_thread and self._afk_earnings_thread.is_alive():
+                messagebox.showwarning("AFK", "انتظر حتى تنتهي مزامنة الجلسة السابقة.")
                 return
+            if self._afk_pending_sync is not None:
+                messagebox.showwarning("AFK", "توجد أرباح لم تتم مزامنتها. تحقق من الاتصال ثم أعد المحاولة.")
+                return
+            if not self.save_afk_settings():
+                return
+            self.afk_enabled = True
             self._afk_elapsed = 0.0
+            self._afk_last_sync_elapsed = 0.0
             self._afk_last_tick = None
             self._afk_stop.clear()
             self._afk_earnings_thread = threading.Thread(target=self._afk_earnings_loop, daemon=True)
@@ -758,13 +916,14 @@ class AzToolApp:
             self.afk_button.config(text="STOP AFK  [F5]", bg=RED, fg="white")
             self.afk_status.set("AFK is ON.")
         else:
+            self.afk_enabled = False
             self._afk_stop.set()
             try:
                 ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
             except Exception:
                 pass
             self.afk_button.config(text="START AFK  [F5]", bg=GREEN, fg="#07110d")
-            self.afk_status.set("AFK is OFF.")
+            self.afk_status.set("AFK is OFF. Saving the final earnings interval...")
 
     def _afk_input_loop(self):
         # Move in a fixed W -> A -> S -> D sequence; hold W for 0.35 seconds and keep the other movement timings unchanged.
@@ -911,13 +1070,8 @@ class AzToolApp:
         if not self._link_verified:
             messagebox.showerror("Radar locked", "Verify and approve your Discord link first.")
             return
-        try:
-            import mss, rapidocr_onnxruntime
-            from PIL import Image
-            import numpy
-        except ImportError:
-            messagebox.showerror("Missing components", "This build is missing bundled radar components. Please reinstall the complete az Tool application build.")
-            return
+        # Keep heavy OCR/ONNX imports off the Tkinter UI thread. Importing
+        # RapidOCR synchronously can freeze the window and make it appear white.
         self._radar_stop.clear()
         self.radar_enabled = True
         self.radar_button.config(text="STOP RADAR", bg=RED, fg="white")

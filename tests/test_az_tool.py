@@ -87,6 +87,20 @@ class UtilityTests(unittest.TestCase):
         self.assertLessEqual(region["left"] + region["width"], 800)
         self.assertLessEqual(region["top"] + region["height"], 600)
 
+    def test_income_to_qi_converts_every_supported_unit(self):
+        self.assertEqual(az_tool.income_to_qi(1, "QI"), 1)
+        self.assertEqual(az_tool.income_to_qi(1, "SX"), 1000)
+        self.assertEqual(az_tool.income_to_qi(1, "SP"), 1000000)
+        self.assertEqual(az_tool.income_to_qi(1, "OC"), 1000000000)
+        self.assertEqual(az_tool.income_to_qi(1, "NO"), 1000000000000)
+
+    def test_format_money_scales_from_qi_through_no(self):
+        self.assertEqual(az_tool.format_money(999), "999.00 QI")
+        self.assertEqual(az_tool.format_money(1000), "1.00 SX")
+        self.assertEqual(az_tool.format_money(1000000), "1.00 SP")
+        self.assertEqual(az_tool.format_money(1000000000), "1.00 OC")
+        self.assertEqual(az_tool.format_money(1000000000000), "1.00 NO")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
