@@ -8,6 +8,25 @@ import az_tool
 
 
 class UtilityTests(unittest.TestCase):
+    def test_rebirth_multiplier_and_colors(self):
+        self.assertEqual(az_tool.rebirth_multiplier(0, 0), 1.0)
+        self.assertEqual(az_tool.rebirth_multiplier(1, 0), 1.5)
+        self.assertEqual(az_tool.rebirth_multiplier(67, 2), 35.5)
+        self.assertEqual(az_tool.rebirth_multiplier(100, 21), 61.5)
+
+    def test_rebirth_and_color_limits(self):
+        for rebirth in (-1, 101):
+            with self.assertRaises(ValueError):
+                az_tool.rebirth_multiplier(rebirth, 0)
+        for colors in (-1, 22):
+            with self.assertRaises(ValueError):
+                az_tool.rebirth_multiplier(1, colors)
+
+    def test_calculate_afk_earnings(self):
+        self.assertAlmostEqual(az_tool.calculate_afk_earnings(25.4, 67, 2, 10), 9017.0)
+        with self.assertRaises(ValueError):
+            az_tool.calculate_afk_earnings(0, 1, 0, 10)
+
     def test_device_id_is_stable_for_same_environment(self):
         with patch.dict(os.environ, {
             "COMPUTERNAME": "TEST-PC",
