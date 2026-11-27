@@ -67,7 +67,7 @@ AFK_LOADING_TERMS = (
 AFK_LOBBY_TERMS = (
     "battle royale", "zero build", "item shop", "locker",
     "quests", "v bucks", "vbucks", "party up", "ready up",
-    "discover", "play"
+    "discover", "play", "lobby", "friends", "invite", "battle pass"
 )
 
 
