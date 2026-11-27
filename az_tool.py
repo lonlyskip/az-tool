@@ -11,7 +11,7 @@ import time
 import tkinter as tk
 import ctypes
 import ctypes.wintypes
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone
@@ -25,6 +25,23 @@ STATE_FILE = os.path.join(APP_DIR, "state.json")
 POLL_SECONDS = 0.50
 
 EVENT_COOLDOWN_SECONDS = 1.5
+
+
+def rebirth_multiplier(rebirth, colors=0):
+    """Base multiplier: 1x at zero rebirth; each rebirth/color adds 0.5x."""
+    rebirth, colors = int(rebirth), int(colors)
+    if not 0 <= rebirth <= 100:
+        raise ValueError("الريبيرث لازم يكون من 0 إلى 100.")
+    if not 0 <= colors <= 21:
+        raise ValueError("عدد الألوان لازم يكون من 0 إلى 21.")
+    return 1.0 + rebirth * 0.5 + colors * 0.5
+
+
+def calculate_afk_earnings(base_income, rebirth, colors, elapsed_seconds):
+    base_income = float(base_income)
+    if base_income <= 0:
+        raise ValueError("الدخل الأساسي لازم يكون أكبر من صفر.")
+    return base_income * rebirth_multiplier(rebirth, colors) * max(0.0, float(elapsed_seconds))
 
 
 def runtime_base_dir():
@@ -211,6 +228,13 @@ class AzToolApp:
         self.state.pop('discord_skipped', None)
         self.afk_enabled = False
         self._afk_stop = threading.Event()
+        self._afk_elapsed = 0.0
+        self._afk_last_tick = None
+        self._afk_earnings_thread = None
+        self.base_income = tk.StringVar(value=str(self.state.get("afk_base_income", "1")))
+        self.rebirth = tk.StringVar(value=str(self.state.get("afk_rebirth", 0)))
+        self.colors = tk.StringVar(value=str(self.state.get("afk_colors", 0)))
+        self.afk_earnings_status = tk.StringVar(value="المدة: 00:00:00 | الدخل: 0")
         self._afk_thread = None
         self._hotkey_thread = None
         self._hotkey_thread_id = None
@@ -412,6 +436,18 @@ class AzToolApp:
         self.afk_button.pack(fill="x")
         self.afk_status = tk.StringVar(value="AFK is OFF.")
         tk.Label(self.afk_card, textvariable=self.afk_status, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(8, 0))
+        settings = tk.Frame(self.afk_card, bg=PANEL)
+        settings.pack(fill="x", pady=(12, 0))
+        self.label(settings, "الدخل الأساسي في الثانية", MUTED, 9).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=4)
+        self.entry(settings, self.base_income).grid(row=0, column=1, sticky="ew", pady=4, ipady=6)
+        self.label(settings, "الريبيرث (0–100)", MUTED, 9).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
+        self.entry(settings, self.rebirth).grid(row=1, column=1, sticky="ew", pady=4, ipady=6)
+        self.label(settings, "الألوان المكتملة (0–21)", MUTED, 9).grid(row=2, column=0, sticky="w", padx=(0, 8), pady=4)
+        self.colors_box = ttk.Combobox(settings, textvariable=self.colors, values=[str(i) for i in range(22)], state="readonly", width=8)
+        self.colors_box.grid(row=2, column=1, sticky="ew", pady=4, ipady=4)
+        settings.columnconfigure(1, weight=1)
+        self.button(settings, "حفظ الإعدادات", self.save_afk_settings, color="#29314a").grid(row=3, column=0, columnspan=2, sticky="ew", pady=(8, 4))
+        tk.Label(self.afk_card, textvariable=self.afk_earnings_status, bg=PANEL, fg=GREEN, font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(5, 0))
 
         self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • Notification-area detection")
         radar_card = self.radar_card
@@ -673,6 +709,43 @@ class AzToolApp:
         except Exception as exc:
             self.root.after(0, lambda err=str(exc): self.afk_status.set("Global F5 error: " + err[:90]))
 
+    def save_afk_settings(self):
+        try:
+            base = float(self.base_income.get().strip())
+            rebirth = int(self.rebirth.get().strip())
+            colors = int(self.colors.get().strip())
+            calculate_afk_earnings(base, rebirth, colors, 0)
+        except (TypeError, ValueError) as exc:
+            messagebox.showerror("إعدادات AFK", str(exc) or "تحقق من القيم المدخلة.")
+            return False
+        self.state["afk_base_income"] = str(base)
+        self.state["afk_rebirth"] = rebirth
+        self.state["afk_colors"] = colors
+        save_state(self.state)
+        self.afk_status.set(f"تم حفظ الإعدادات • المضاعف الحالي {rebirth_multiplier(rebirth, colors):g}x")
+        return True
+
+    def _afk_earnings_loop(self):
+        import win32gui
+        while not self._afk_stop.is_set() and not self._closing:
+            try:
+                hwnd = win32gui.GetForegroundWindow()
+                title = win32gui.GetWindowText(hwnd).lower()
+                now = time.monotonic()
+                if "fortnite" in title:
+                    if self._afk_last_tick is not None:
+                        self._afk_elapsed += max(0.0, now - self._afk_last_tick)
+                    self._afk_last_tick = now
+                else:
+                    self._afk_last_tick = None
+                total = calculate_afk_earnings(float(self.base_income.get()), int(self.rebirth.get()), int(self.colors.get()), self._afk_elapsed)
+                seconds = int(self._afk_elapsed)
+                clock = f"{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
+                self.root.after(0, lambda c=clock, t=total: self.afk_earnings_status.set(f"المدة داخل Fortnite: {c} | الدخل التقديري: {t:,.2f}"))
+            except Exception as exc:
+                self.root.after(0, lambda e=str(exc): self.afk_earnings_status.set(f"تعذر تحديث الدخل: {e[:80]}"))
+            self._afk_stop.wait(1.0)
+
     def toggle_afk(self):
         if not self.license_key.get().strip():
             messagebox.showerror("AFK", "Activate your license first.")
@@ -683,7 +756,14 @@ class AzToolApp:
 
         self.afk_enabled = not self.afk_enabled
         if self.afk_enabled:
+            if not self.save_afk_settings():
+                self.afk_enabled = False
+                return
+            self._afk_elapsed = 0.0
+            self._afk_last_tick = None
             self._afk_stop.clear()
+            self._afk_earnings_thread = threading.Thread(target=self._afk_earnings_loop, daemon=True)
+            self._afk_earnings_thread.start()
             try:
                 ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000002)
             except Exception:
