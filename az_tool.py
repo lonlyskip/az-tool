@@ -11,7 +11,7 @@ import time
 import tkinter as tk
 import ctypes
 import ctypes.wintypes
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone
@@ -27,21 +27,12 @@ POLL_SECONDS = 0.50
 EVENT_COOLDOWN_SECONDS = 1.5
 
 
-def rebirth_multiplier(rebirth, colors=0):
-    """Base multiplier: 1x at zero rebirth; each rebirth/color adds 0.5x."""
-    rebirth, colors = int(rebirth), int(colors)
-    if not 0 <= rebirth <= 100:
-        raise ValueError("الريبيرث لازم يكون من 0 إلى 100.")
-    if not 0 <= colors <= 21:
-        raise ValueError("عدد الألوان لازم يكون من 0 إلى 21.")
-    return 1.0 + rebirth * 0.5 + colors * 0.5
-
-
-def calculate_afk_earnings(base_income, rebirth, colors, elapsed_seconds):
-    base_income = float(base_income)
-    if base_income <= 0:
-        raise ValueError("الدخل الأساسي لازم يكون أكبر من صفر.")
-    return base_income * rebirth_multiplier(rebirth, colors) * max(0.0, float(elapsed_seconds))
+def calculate_afk_earnings(income_per_second, elapsed_seconds):
+    """Estimate earnings using the editable per-second income only."""
+    income_per_second = float(income_per_second)
+    if income_per_second <= 0:
+        raise ValueError("الدخل بالثانية لازم يكون أكبر من صفر.")
+    return income_per_second * max(0.0, float(elapsed_seconds))
 
 
 def runtime_base_dir():
@@ -232,8 +223,9 @@ class AzToolApp:
         self._afk_last_tick = None
         self._afk_earnings_thread = None
         self.base_income = tk.StringVar(value=str(self.state.get("afk_base_income", "1")))
-        self.rebirth = tk.StringVar(value=str(self.state.get("afk_rebirth", 0)))
-        self.colors = tk.StringVar(value=str(self.state.get("afk_colors", 0)))
+        # Remove obsolete settings from older versions.
+        self.state.pop("afk_rebirth", None)
+        self.state.pop("afk_colors", None)
         self.afk_earnings_status = tk.StringVar(value="المدة: 00:00:00 | الدخل: 0")
         self._afk_thread = None
         self._hotkey_thread = None
@@ -438,15 +430,10 @@ class AzToolApp:
         tk.Label(self.afk_card, textvariable=self.afk_status, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(8, 0))
         settings = tk.Frame(self.afk_card, bg=PANEL)
         settings.pack(fill="x", pady=(12, 0))
-        self.label(settings, "الدخل الأساسي في الثانية", MUTED, 9).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=4)
+        self.label(settings, "الدخل بالثانية", MUTED, 9).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=4)
         self.entry(settings, self.base_income).grid(row=0, column=1, sticky="ew", pady=4, ipady=6)
-        self.label(settings, "الريبيرث (0–100)", MUTED, 9).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
-        self.entry(settings, self.rebirth).grid(row=1, column=1, sticky="ew", pady=4, ipady=6)
-        self.label(settings, "الألوان المكتملة (0–21)", MUTED, 9).grid(row=2, column=0, sticky="w", padx=(0, 8), pady=4)
-        self.colors_box = ttk.Combobox(settings, textvariable=self.colors, values=[str(i) for i in range(22)], state="readonly", width=8)
-        self.colors_box.grid(row=2, column=1, sticky="ew", pady=4, ipady=4)
         settings.columnconfigure(1, weight=1)
-        self.button(settings, "حفظ الإعدادات", self.save_afk_settings, color="#29314a").grid(row=3, column=0, columnspan=2, sticky="ew", pady=(8, 4))
+        self.button(settings, "حفظ الدخل", self.save_afk_settings, color="#29314a").grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 4))
         tk.Label(self.afk_card, textvariable=self.afk_earnings_status, bg=PANEL, fg=GREEN, font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(5, 0))
 
         self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • Notification-area detection")
@@ -711,18 +698,16 @@ class AzToolApp:
 
     def save_afk_settings(self):
         try:
-            base = float(self.base_income.get().strip())
-            rebirth = int(self.rebirth.get().strip())
-            colors = int(self.colors.get().strip())
-            calculate_afk_earnings(base, rebirth, colors, 0)
+            income = float(self.base_income.get().strip())
+            calculate_afk_earnings(income, 0)
         except (TypeError, ValueError) as exc:
-            messagebox.showerror("إعدادات AFK", str(exc) or "تحقق من القيم المدخلة.")
+            messagebox.showerror("إعدادات AFK", str(exc) or "أدخل دخلًا صحيحًا أكبر من صفر.")
             return False
-        self.state["afk_base_income"] = str(base)
-        self.state["afk_rebirth"] = rebirth
-        self.state["afk_colors"] = colors
+        self.state["afk_base_income"] = str(income)
+        self.state.pop("afk_rebirth", None)
+        self.state.pop("afk_colors", None)
         save_state(self.state)
-        self.afk_status.set(f"تم حفظ الإعدادات • المضاعف الحالي {rebirth_multiplier(rebirth, colors):g}x")
+        self.afk_status.set(f"تم حفظ الدخل: {income:,.4g} في الثانية")
         return True
 
     def _afk_earnings_loop(self):
@@ -738,7 +723,7 @@ class AzToolApp:
                     self._afk_last_tick = now
                 else:
                     self._afk_last_tick = None
-                total = calculate_afk_earnings(float(self.base_income.get()), int(self.rebirth.get()), int(self.colors.get()), self._afk_elapsed)
+                total = calculate_afk_earnings(float(self.base_income.get()), self._afk_elapsed)
                 seconds = int(self._afk_elapsed)
                 clock = f"{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
                 self.root.after(0, lambda c=clock, t=total: self.afk_earnings_status.set(f"المدة داخل Fortnite: {c} | الدخل التقديري: {t:,.2f}"))
