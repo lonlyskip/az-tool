@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone
 from PIL import Image, ImageEnhance, ImageTk, ImageChops, ImageStat
-from rebirth_data import REBIRTH_COSTS, JUMP_COSTS, parse_game_money, format_game_money, remaining_time
+from rebirth_data import REBIRTH_COSTS, JUMP_COSTS, parse_game_money, format_game_money
 
 APP_NAME = "az tool"
 LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
