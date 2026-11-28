@@ -56,6 +56,7 @@ def format_game_money(value):
 
 
 JUMP_COSTS = tuple(parse_game_money(item) for item in JUMP_COST_TEXT)
+MAX_REBIRTH_LEVEL = 100
 REBIRTH_COSTS = tuple(parse_game_money(item) for item in REBIRTH_COST_TEXT)
 if len(JUMP_COSTS) != 96 or len(REBIRTH_COSTS) != 95:
     raise RuntimeError("AZ Tool cost table is incomplete.")
