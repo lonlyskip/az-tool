@@ -29,6 +29,71 @@ POLL_SECONDS = 0.50
 EVENT_COOLDOWN_SECONDS = 1.5
 
 
+
+GAME_MONITOR_INTERVAL = 1.5
+GAME_LABELS = {
+    "balance": ("money", "cash", "coins", "balance", "wallet"),
+    "income": ("income", "per second", "earnings", "earn/s", "/sec", "/s"),
+    "rebirth": ("rebirth", "rebirths"),
+    "jumps": ("jumps", "jump", "نطات", "نطة"),
+}
+
+
+def _ocr_number_tokens(text):
+    cleaned = str(text or "").replace(",", "").replace("O", "0").replace("o", "0")
+    return re.findall(r"(?<![A-Za-z])\d+(?:\.\d+)?\s*(?:Qa|Qi|Sx|Sp|Oc|No|K|M|B|T)?", cleaned, re.I)
+
+
+def parse_game_monitor_text(detections):
+    """Extract only numeric values located next to recognizable stat labels."""
+    items = []
+    for item in detections or []:
+        if len(item) < 2:
+            continue
+        box, raw_text = item[0], str(item[1]).strip()
+        if not raw_text:
+            continue
+        try:
+            xs = [float(p[0]) for p in box]
+            ys = [float(p[1]) for p in box]
+            items.append({"text": raw_text, "x": min(xs), "y": min(ys),
+                          "right": max(xs), "bottom": max(ys),
+                          "cx": (min(xs)+max(xs))/2, "cy": (min(ys)+max(ys))/2})
+        except (TypeError, ValueError, IndexError):
+            continue
+    result = {}
+    for field, labels in GAME_LABELS.items():
+        choices = []
+        for label in items:
+            normalized = re.sub(r"[^a-z0-9/ ]", " ", label["text"].lower())
+            if not any(word in normalized for word in labels):
+                continue
+            own = _ocr_number_tokens(label["text"])
+            if own:
+                choices.append((0, own[-1].replace(" ", "")))
+            for value in items:
+                if value is label:
+                    continue
+                dx, dy = value["x"] - label["right"], value["cy"] - label["cy"]
+                if not ((-8 <= dx <= 260 and abs(dy) <= 34) or
+                        (abs(dx) <= 180 and 0 < dy <= 48)):
+                    continue
+                tokens = _ocr_number_tokens(value["text"])
+                if tokens:
+                    choices.append((abs(dy)+max(0, dx)*0.18, tokens[0].replace(" ", "")))
+        if choices:
+            token = min(choices, key=lambda item: item[0])[1]
+            try:
+                if field in ("balance", "income"):
+                    result[field] = str(parse_game_money(token))
+                else:
+                    digits = re.sub(r"[^0-9]", "", token)
+                    if digits:
+                        result[field] = int(digits)
+            except (ValueError, ArithmeticError):
+                pass
+    return result
+
 MONEY_UNITS = ("QA", "QI", "SX", "SP", "OC", "NO")
 UNIT_TO_QI = {"QA": 0.001, "QI": 1, "SX": 1000, "SP": 1000000, "OC": 1000000000, "NO": 1000000000000}
 
@@ -310,7 +375,10 @@ class AzToolApp:
         self.forecast_minutes = tk.StringVar(value="0")
         self.forecast_result = tk.StringVar(value="أدخل الدخل والمدة ثم اضغط احسب.")
         # Goal monitor values stay read-only until game OCR is implemented.
-        self.detected_jumps = tk.StringVar(value="بانتظار مراقبة اللعبة")
+        self.detected_balance = tk.StringVar(value="—")
+        self.detected_income = tk.StringVar(value="—")
+        self.monitor_status = tk.StringVar(value="بانتظار تشغيل اللعبة")
+        self.detected_jumps = tk.StringVar(value="—")
         self.detected_rebirth = tk.StringVar(value="بانتظار مراقبة اللعبة")
         self.goal_jumps = tk.StringVar(value=str(self.state.get("goal_jumps", "100")))
         self.goal_rebirth = tk.StringVar(value=str(self.state.get("goal_rebirth", "1")))
@@ -323,6 +391,11 @@ class AzToolApp:
         self.jump_result = tk.StringVar(value="حدد نطاق النطات ثم اضغط احسب.")
         self.rebirth_range_result = tk.StringVar(value="حدد نطاق الريبيرث ثم اضغط احسب.")
         self._rebirth_notified_for = None
+        self._monitor_stop = threading.Event()
+        self._monitor_thread = None
+        self._monitor_last_values = {}
+        self._monitor_last_seen = 0.0
+        self._goal_notice_keys = set()
         try:
             self._afk_last_sync_elapsed = max(
                 0.0, float(self.state.get("afk_last_sync_elapsed", self._afk_elapsed))
@@ -612,8 +685,10 @@ class AzToolApp:
         detected_frame = tk.Frame(self.rebirth_card, bg=PANEL)
         detected_frame.pack(fill="x", pady=(2, 6))
         for column, (caption, variable) in enumerate((
-            ("النطات الحالية", self.detected_jumps),
-            ("الريبيرث الحالي", self.detected_rebirth),
+            ("الرصيد", self.detected_balance),
+            ("الدخل / ثانية", self.detected_income),
+            ("النطات", self.detected_jumps),
+            ("الريبيرث", self.detected_rebirth),
         )):
             cell = tk.Frame(detected_frame, bg=PANEL_2, padx=8, pady=6)
             cell.pack(side="left", fill="x", expand=True, padx=(0 if column == 0 else 8, 0))
@@ -640,7 +715,8 @@ class AzToolApp:
             highlightthickness=0, cursor="hand2"
         )
         self.goal_notification_check.pack(anchor="w", pady=(2, 0))
-        self.label(self.rebirth_card, "المراقبة التلقائية قيد التجهيز", MUTED, 8).pack(anchor="w", pady=(3, 0))
+        tk.Label(self.rebirth_card, textvariable=self.monitor_status, bg=PANEL,
+                 fg=MUTED, font=("Segoe UI", 8), anchor="w").pack(anchor="w", pady=(3, 0))
 
         self.jump_card = self.card(self.gated_frame, "حاسبة النطات")
         jump_row = tk.Frame(self.jump_card, bg=PANEL)
@@ -697,13 +773,122 @@ class AzToolApp:
         for card in (self.afk_card, self.forecast_card, self.rebirth_card, self.jump_card, self.rebirth_range_card, self.radar_card):
             if not card.winfo_manager():
                 card.pack(fill="x", padx=14, pady=4)
+        self.start_game_monitor()
         if self._link_verified:
             self.radar_button.config(state="normal", bg=GREEN)
         else:
             self.radar_button.config(state="disabled", bg="#303747")
             self.radar_status.set("Discord verification is needed for alert delivery.")
 
+    def start_game_monitor(self):
+        if self._closing or (self._monitor_thread and self._monitor_thread.is_alive()):
+            return
+        self._monitor_stop.clear()
+        self._monitor_thread = threading.Thread(target=self._game_monitor_loop, daemon=True)
+        self._monitor_thread.start()
+        self.monitor_status.set("المراقبة تعمل • بانتظار إحصائيات اللعبة")
+
+    def stop_game_monitor(self):
+        self._monitor_stop.set()
+        if not self._closing:
+            self.monitor_status.set("المراقبة متوقفة")
+
+    def _game_monitor_loop(self):
+        try:
+            import mss
+            import numpy as np
+            import win32gui
+            from rapidocr_onnxruntime import RapidOCR
+            ocr = RapidOCR()
+            capture = mss.mss()
+        except Exception as exc:
+            if not self._closing:
+                self.root.after(0, lambda msg=type(exc).__name__: self.monitor_status.set("تعذر تشغيل OCR: " + msg))
+            return
+        try:
+            while not self._monitor_stop.is_set() and not self._closing:
+                try:
+                    hwnd = win32gui.GetForegroundWindow()
+                    title = win32gui.GetWindowText(hwnd).lower()
+                    if "fortnite" not in title:
+                        self.root.after(0, lambda: self.monitor_status.set("بانتظار نافذة Fortnite"))
+                        self._monitor_stop.wait(GAME_MONITOR_INTERVAL)
+                        continue
+                    shot = capture.grab(capture.monitors[1])
+                    frame = Image.frombytes("RGB", shot.size, shot.rgb)
+                    detections, _elapsed = ocr(np.array(frame))
+                    values = parse_game_monitor_text(detections or [])
+                    if values:
+                        self._monitor_last_seen = time.time()
+                        self._monitor_last_values.update(values)
+                        self.root.after(0, lambda data=dict(self._monitor_last_values): self._apply_game_monitor_values(data))
+                    elif time.time() - self._monitor_last_seen > 8:
+                        self.root.after(0, lambda: self.monitor_status.set("اللعبة ظاهرة • لم يتم التعرف على الإحصائيات"))
+                except Exception as exc:
+                    if not self._closing:
+                        self.root.after(0, lambda msg=str(exc)[:100]: self.monitor_status.set("خطأ بالمراقبة: " + msg))
+                self._monitor_stop.wait(GAME_MONITOR_INTERVAL)
+        finally:
+            try:
+                capture.close()
+            except Exception:
+                pass
+
+    def _apply_game_monitor_values(self, values):
+        if self._closing:
+            return
+        if "balance" in values:
+            self.detected_balance.set(format_game_money(values["balance"]))
+        if "income" in values:
+            self.detected_income.set(format_game_money(values["income"]) + "/s")
+        if "jumps" in values:
+            self.detected_jumps.set(f'{values["jumps"]:,}')
+        if "rebirth" in values:
+            self.detected_rebirth.set(f'{values["rebirth"]:,}')
+        self.monitor_status.set("مراقبة مباشرة • آخر قراءة الآن")
+        self._check_game_goals(values)
+
+    def _check_game_goals(self, values):
+        if not self.goal_notifications.get():
+            return
+        for field, variable, label in (
+            ("jumps", self.goal_jumps, "النطات"),
+            ("rebirth", self.goal_rebirth, "الريبيرث"),
+        ):
+            if field not in values:
+                continue
+            try:
+                target = int(str(variable.get()).strip().replace(",", ""))
+            except (TypeError, ValueError):
+                continue
+            current = int(values[field])
+            key = f"{field}:{target}"
+            if target > 0 and current >= target and key not in self._goal_notice_keys:
+                self._goal_notice_keys.add(key)
+                self._show_goal_toast(f"وصلت لهدف {label}: {current:,}")
+
+    def _show_goal_toast(self, message):
+        if self._closing:
+            return
+        try:
+            toast = tk.Toplevel(self.root)
+            toast.title("AZ Tool")
+            toast.configure(bg=PANEL)
+            toast.attributes("-topmost", True)
+            toast.resizable(False, False)
+            tk.Label(toast, text=message, bg=PANEL, fg=GREEN,
+                     font=("Segoe UI", 10, "bold"), padx=18, pady=14).pack()
+            toast.update_idletasks()
+            x = self.root.winfo_rootx() + max(0, self.root.winfo_width()-toast.winfo_width()-24)
+            y = self.root.winfo_rooty() + 36
+            toast.geometry(f"+{x}+{y}")
+            toast.after(4500, toast.destroy)
+            self.root.bell()
+        except tk.TclError:
+            pass
+
     def _hide_gated_sections(self):
+        self.stop_game_monitor()
         self.stop_radar()
         self._link_verified = False
         self._discord_skipped = False
@@ -1749,6 +1934,7 @@ class AzToolApp:
         self._polling = False
         self._radar_stop.set()
         self.radar_enabled = False
+        self._monitor_stop.set()
         self._afk_stop.set()
         self.afk_enabled = False
         try:
