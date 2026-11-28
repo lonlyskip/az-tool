@@ -309,14 +309,17 @@ class AzToolApp:
         self.forecast_hours = tk.StringVar(value="0")
         self.forecast_minutes = tk.StringVar(value="0")
         self.forecast_result = tk.StringVar(value="أدخل الدخل والمدة ثم اضغط احسب.")
-        self.current_balance = tk.StringVar(value=str(self.state.get("game_balance", "0")))
-        self.balance_unit = tk.StringVar(value=str(self.state.get("game_balance_unit", "QI")).upper())
-        self.current_rebirth = tk.StringVar(value=str(self.state.get("current_rebirth", "0")))
+        # Goal monitor values stay read-only until game OCR is implemented.
+        self.detected_jumps = tk.StringVar(value="بانتظار مراقبة اللعبة")
+        self.detected_rebirth = tk.StringVar(value="بانتظار مراقبة اللعبة")
+        self.goal_jumps = tk.StringVar(value=str(self.state.get("goal_jumps", "100")))
+        self.goal_rebirth = tk.StringVar(value=str(self.state.get("goal_rebirth", "1")))
+        self.goal_notifications = tk.BooleanVar(value=bool(self.state.get("goal_notifications", False)))
         self.jump_from = tk.StringVar(value="0")
         self.jump_to = tk.StringVar(value="10")
         self.rebirth_from = tk.StringVar(value="0")
         self.rebirth_to = tk.StringVar(value="1")
-        self.rebirth_result = tk.StringVar(value="أدخل رصيدك الحالي واضغط تحديث.")
+        self.rebirth_result = tk.StringVar(value="ستظهر حالة الهدف بعد تفعيل مراقبة اللعبة.")
         self.jump_result = tk.StringVar(value="حدد نطاق النطات ثم اضغط احسب.")
         self.rebirth_range_result = tk.StringVar(value="حدد نطاق الريبيرث ثم اضغط احسب.")
         self._rebirth_notified_for = None
@@ -567,8 +570,8 @@ class AzToolApp:
                     self.reset_afk_earnings, color="#29314a").pack(fill="x", pady=(10, 0))
 
         self.forecast_card = self.card(
-            self.gated_frame, "حاسبة الدخل المتوقع",
-            "حاسبة مستقلة — لا تغيّر رصيد التجميع أو إحصائياتك."
+            self.gated_frame, "حاسبة الدخل المتوقع والتكلفة",
+            "احسب الدخل المتوقع خلال مدة محددة، واستخدم الحاسبات المنفصلة لتقدير تكاليف الأهداف."
         )
         forecast_income_row = tk.Frame(self.forecast_card, bg=PANEL)
         forecast_income_row.pack(fill="x", pady=(4, 8))
@@ -608,46 +611,68 @@ class AzToolApp:
         ).pack(anchor="w")
 
         self.rebirth_card = self.card(
-            self.gated_frame, "Money & Rebirth",
-            "حساب الهدف الحالي يعتمد على إدخال الرصيد يدويًا مؤقتًا. قراءة الرصيد والريبيرث تلقائيًا ستضاف لاحقًا."
+            self.gated_frame, "منطقة الهدف",
+            "تُقرأ النطات والريبيرث الحالية تلقائيًا من اللعبة عند تفعيل المراقبة. القيم الحالية للعرض فقط."
         )
-        balance_row = tk.Frame(self.rebirth_card, bg=PANEL)
-        balance_row.pack(fill="x", pady=(4, 8))
-        self.label(balance_row, "رصيدك الحالي", MUTED, 9).pack(side="left", padx=(0, 8))
-        self.entry(balance_row, self.current_balance).pack(side="left", fill="x", expand=True, ipady=6)
-        self.balance_unit_menu = tk.OptionMenu(
-            balance_row, self.balance_unit, "K", "M", "B", "T", "Qa", "QI", "SX", "SP", "OC", "NO"
+        detected_frame = tk.Frame(self.rebirth_card, bg=PANEL)
+        detected_frame.pack(fill="x", pady=(4, 10))
+        for column, (caption, variable) in enumerate((
+            ("النطات الحالية", self.detected_jumps),
+            ("الريبيرث الحالي", self.detected_rebirth),
+        )):
+            cell = tk.Frame(detected_frame, bg=PANEL_2, padx=10, pady=9)
+            cell.pack(side="left", fill="x", expand=True, padx=(0 if column == 0 else 8, 0))
+            self.label(cell, caption, MUTED, 9).pack(anchor="w")
+            tk.Label(cell, textvariable=variable, bg=PANEL_2, fg=TEXT,
+                     font=("Segoe UI", 10, "bold"), anchor="w").pack(fill="x", pady=(4, 0))
+
+        goals_frame = tk.Frame(self.rebirth_card, bg=PANEL)
+        goals_frame.pack(fill="x", pady=(0, 8))
+        for column, (caption, variable) in enumerate((
+            ("هدف النطات", self.goal_jumps),
+            ("هدف الريبيرث", self.goal_rebirth),
+        )):
+            cell = tk.Frame(goals_frame, bg=PANEL)
+            cell.pack(side="left", fill="x", expand=True, padx=(0 if column == 0 else 8, 0))
+            self.label(cell, caption, MUTED, 9).pack(anchor="w")
+            self.entry(cell, variable).pack(fill="x", ipady=6, pady=(4, 0))
+
+        self.goal_notification_check = tk.Checkbutton(
+            self.rebirth_card, text="إرسال إشعارات عند تحقيق الهدف",
+            variable=self.goal_notifications, command=self.save_goal_notification_setting,
+            bg=PANEL, fg=TEXT, activebackground=PANEL, activeforeground=TEXT,
+            selectcolor=PANEL_2, font=("Segoe UI", 9), relief="flat",
+            highlightthickness=0, cursor="hand2"
         )
-        self.balance_unit_menu.configure(bg=PANEL_2, fg=TEXT, activebackground=ACCENT,
-                                         activeforeground="white", relief="flat",
-                                         highlightthickness=0, width=5)
-        self.balance_unit_menu["menu"].configure(bg=PANEL_2, fg=TEXT,
-                                                 activebackground=ACCENT, activeforeground="white")
-        self.balance_unit_menu.pack(side="left", padx=(8, 0))
-        rebirth_row = tk.Frame(self.rebirth_card, bg=PANEL)
-        rebirth_row.pack(fill="x", pady=(0, 8))
-        self.label(rebirth_row, "الريبيرث الحالي", MUTED, 9).pack(side="left", padx=(0, 8))
-        self.entry(rebirth_row, self.current_rebirth).pack(side="left", fill="x", expand=True, ipady=6)
-        self.button(rebirth_row, "تحديث الهدف", self.update_rebirth_tracker, color=ACCENT).pack(side="left", padx=(8, 0))
-        tk.Label(self.rebirth_card, textvariable=self.rebirth_result, bg=PANEL, fg=GREEN,
-                 font=("Segoe UI", 10, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(4, 10))
-        self.label(self.rebirth_card, "حاسبة النطات — احسب مجموع التكلفة من رقم إلى رقم", MUTED, 9).pack(anchor="w", pady=(8, 5))
-        jump_row = tk.Frame(self.rebirth_card, bg=PANEL)
+        self.goal_notification_check.pack(anchor="w", pady=(2, 0))
+        self.label(self.rebirth_card,
+                   "المراقبة التلقائية لم تُفعّل بعد؛ لذلك لن تظهر قيم حالية أو إشعارات إنجاز حتى يكتمل قارئ اللعبة.",
+                   MUTED, 9).pack(anchor="w", pady=(6, 0))
+
+        self.jump_card = self.card(
+            self.gated_frame, "حاسبة النطات",
+            "احسب مجموع تكلفة جميع الشرائح من نطة البداية إلى نطة النهاية."
+        )
+        jump_row = tk.Frame(self.jump_card, bg=PANEL)
         jump_row.pack(fill="x")
         self.entry(jump_row, self.jump_from).pack(side="left", fill="x", expand=True, ipady=7)
         self.label(jump_row, "إلى", MUTED, 9).pack(side="left", padx=7)
         self.entry(jump_row, self.jump_to).pack(side="left", fill="x", expand=True, ipady=7)
-        self.button(self.rebirth_card, "احسب مجموع النطات", self.calculate_jump_cost, color="#29314a").pack(fill="x", pady=(8, 5))
-        tk.Label(self.rebirth_card, textvariable=self.jump_result, bg=PANEL, fg=TEXT,
-                 font=("Segoe UI", 9, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(2, 10))
-        self.label(self.rebirth_card, "حاسبة الريبيرث — مجموع تكلفة الانتقال بين مستويين", MUTED, 9).pack(anchor="w", pady=(4, 5))
-        rebirth_range_row = tk.Frame(self.rebirth_card, bg=PANEL)
+        self.button(self.jump_card, "احسب تكلفة النطات", self.calculate_jump_cost, color="#29314a").pack(fill="x", pady=(8, 5))
+        tk.Label(self.jump_card, textvariable=self.jump_result, bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 9, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(2, 0))
+
+        self.rebirth_range_card = self.card(
+            self.gated_frame, "حاسبة الريبيرث",
+            "احسب إجمالي تكلفة الانتقال من ريبيرث إلى ريبيرث."
+        )
+        rebirth_range_row = tk.Frame(self.rebirth_range_card, bg=PANEL)
         rebirth_range_row.pack(fill="x")
         self.entry(rebirth_range_row, self.rebirth_from).pack(side="left", fill="x", expand=True, ipady=7)
         self.label(rebirth_range_row, "إلى", MUTED, 9).pack(side="left", padx=7)
         self.entry(rebirth_range_row, self.rebirth_to).pack(side="left", fill="x", expand=True, ipady=7)
-        self.button(self.rebirth_card, "احسب مجموع الريبيرث", self.calculate_rebirth_range, color="#29314a").pack(fill="x", pady=(8, 5))
-        tk.Label(self.rebirth_card, textvariable=self.rebirth_range_result, bg=PANEL, fg=TEXT,
+        self.button(self.rebirth_range_card, "احسب تكلفة الريبيرث", self.calculate_rebirth_range, color="#29314a").pack(fill="x", pady=(8, 5))
+        tk.Label(self.rebirth_range_card, textvariable=self.rebirth_range_result, bg=PANEL, fg=TEXT,
                  font=("Segoe UI", 9, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(2, 0))
 
         self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • Notification-area detection")
@@ -663,6 +688,8 @@ class AzToolApp:
         self.discord_card.pack_forget()
         self.afk_card.pack_forget()
         self.rebirth_card.pack_forget()
+        self.jump_card.pack_forget()
+        self.rebirth_range_card.pack_forget()
         self.radar_card.pack_forget()
         # F5 is registered globally below so it works while Fortnite is focused.
 
@@ -680,7 +707,7 @@ class AzToolApp:
                 self.discord_card.pack(fill="x", padx=24, pady=8)
         else:
             self.discord_card.pack_forget()
-        for card in (self.afk_card, self.forecast_card, self.rebirth_card, self.radar_card):
+        for card in (self.afk_card, self.forecast_card, self.rebirth_card, self.jump_card, self.rebirth_range_card, self.radar_card):
             if not card.winfo_manager():
                 card.pack(fill="x", padx=24, pady=8)
         if self._link_verified:
@@ -912,6 +939,10 @@ class AzToolApp:
             user32.UnregisterHotKey(None, 0xA501)
         except Exception as exc:
             self.root.after(0, lambda err=str(exc): self.afk_status.set("Global F5 error: " + err[:90]))
+
+    def save_goal_notification_setting(self):
+        self.state["goal_notifications"] = bool(self.goal_notifications.get())
+        save_state(self.state)
 
     def update_rebirth_tracker(self):
         try:
