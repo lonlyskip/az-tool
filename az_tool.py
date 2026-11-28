@@ -815,15 +815,15 @@ class AzToolApp:
                         self._monitor_stop.wait(GAME_MONITOR_INTERVAL)
                         continue
                     monitor = capture.monitors[1]
-                    # The game's shaded statistics panel is on the left side.
-                    # Restrict OCR to the left half to avoid unrelated HUD text.
-                    left_panel = {
+                    # The game's shaded statistics panel is in the lower-left.
+                    # Restrict OCR to that area to avoid unrelated HUD text.
+                    left_lower_panel = {
                         "left": monitor["left"],
-                        "top": monitor["top"],
+                        "top": monitor["top"] + int(monitor["height"] * 0.35),
                         "width": max(1, int(monitor["width"] * 0.50)),
-                        "height": monitor["height"],
+                        "height": max(1, int(monitor["height"] * 0.65)),
                     }
-                    shot = capture.grab(left_panel)
+                    shot = capture.grab(left_lower_panel)
                     frame = Image.frombytes("RGB", shot.size, shot.rgb)
                     detections, _elapsed = ocr(np.array(frame))
                     values = parse_game_monitor_text(detections or [])
