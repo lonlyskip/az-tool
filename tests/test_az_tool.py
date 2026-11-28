@@ -132,5 +132,10 @@ class UtilityTests(unittest.TestCase):
         self.assertEqual(target, 1)
         self.assertEqual(seconds, rebirth_data.REBIRTH_COSTS[0])
 
+    def test_income_and_format_support_qa(self):
+        self.assertEqual(az_tool.income_to_qi(1, "QA"), 0.001)
+        self.assertEqual(az_tool.format_money(0.001), "1.00 QA")
+        self.assertEqual(az_tool.format_expected_money(0.001), "1qa")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
