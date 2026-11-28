@@ -910,7 +910,7 @@ class AzToolApp:
             progress = min(100.0, float((balance / cost) * 100)) if cost else 100.0
             try:
                 income = parse_game_money(f"{self.base_income.get().strip()}{self.income_unit.get().strip()}")
-                seconds = remaining_time(balance, income)[2]
+                seconds = max(0.0, float((cost - balance) / income))
                 eta = f"الوقت المتوقع: {self._format_duration(seconds)}"
             except Exception:
                 eta = "أدخل دخلك بالثانية في إعدادات AFK لحساب الوقت."
