@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 import az_tool
+import rebirth_data
 
 
 class UtilityTests(unittest.TestCase):
@@ -110,6 +111,26 @@ class UtilityTests(unittest.TestCase):
         self.assertEqual(az_tool.format_money(1000000000), "1.00 OC")
         self.assertEqual(az_tool.format_money(1000000000000), "1.00 NO")
 
+
+
+    def test_rebirth_tables_have_complete_user_supplied_ranges(self):
+        self.assertEqual(len(rebirth_data.JUMP_COSTS), 96)
+        self.assertEqual(len(rebirth_data.REBIRTH_COSTS), 95)
+        self.assertEqual(rebirth_data.format_game_money(rebirth_data.REBIRTH_COSTS[-1]), "1.38no")
+        self.assertEqual(rebirth_data.parse_game_money("1Qa"), rebirth_data.parse_game_money("1000T"))
+
+    def test_next_rebirth_progresses_to_final_entry(self):
+        target, cost, complete = rebirth_data.next_rebirth(0)
+        self.assertEqual(target, 1)
+        self.assertFalse(complete)
+        target, cost, complete = rebirth_data.next_rebirth(rebirth_data.REBIRTH_COSTS[-1])
+        self.assertEqual(target, 95)
+        self.assertTrue(complete)
+
+    def test_remaining_time_uses_decimal_balance_and_income(self):
+        target, cost, seconds = rebirth_data.remaining_time(0, 1)
+        self.assertEqual(target, 1)
+        self.assertEqual(seconds, rebirth_data.REBIRTH_COSTS[0])
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
