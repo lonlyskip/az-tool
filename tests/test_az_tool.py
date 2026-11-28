@@ -53,6 +53,23 @@ class UtilityTests(unittest.TestCase):
         self.assertEqual(values["jumps"], 1250)
         self.assertEqual(values["rebirth"], 8)
 
+    def test_game_monitor_parser_does_not_reuse_jump_value_as_rebirth(self):
+        def box(x, y, w=48, h=14):
+            return [[x, y], [x+w, y], [x+w, y+h], [x, y+h]]
+        detections = [
+            [box(10, 10), "Jumps"],
+            [box(10, 34), "Rebirth"],
+            [box(80, 10), "1250"],
+            [box(80, 34), "7"],
+        ]
+        values = az_tool.parse_game_monitor_text(detections)
+        self.assertEqual(values["jumps"], 1250)
+        self.assertEqual(values["rebirth"], 7)
+
+    def test_rebirth_level_cap_is_100_but_cost_table_is_not_fabricated(self):
+        self.assertEqual(rebirth_data.MAX_REBIRTH_LEVEL, 100)
+        self.assertEqual(len(rebirth_data.REBIRTH_COSTS), 95)
+
     def test_game_monitor_parser_does_not_guess_unlabeled_numbers(self):
         detections = [[[[10, 10], [60, 10], [60, 25], [10, 25]], "999sx"]]
         self.assertEqual(az_tool.parse_game_monitor_text(detections), {})
