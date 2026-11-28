@@ -814,7 +814,16 @@ class AzToolApp:
                         self.root.after(0, lambda: self.monitor_status.set("بانتظار نافذة Fortnite"))
                         self._monitor_stop.wait(GAME_MONITOR_INTERVAL)
                         continue
-                    shot = capture.grab(capture.monitors[1])
+                    monitor = capture.monitors[1]
+                    # The game's shaded statistics panel is on the left side.
+                    # Restrict OCR to the left half to avoid unrelated HUD text.
+                    left_panel = {
+                        "left": monitor["left"],
+                        "top": monitor["top"],
+                        "width": max(1, int(monitor["width"] * 0.50)),
+                        "height": monitor["height"],
+                    }
+                    shot = capture.grab(left_panel)
                     frame = Image.frombytes("RGB", shot.size, shot.rgb)
                     detections, _elapsed = ocr(np.array(frame))
                     values = parse_game_monitor_text(detections or [])
