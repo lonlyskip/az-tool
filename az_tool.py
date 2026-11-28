@@ -76,7 +76,7 @@ def parse_game_monitor_text(detections):
     for index, item in enumerate(items):
         normalized = item["text"].lower()
         normalized_ascii = re.sub(r"[^a-z0-9/ ]", " ", normalized)
-        normalized_all = re.sub(r"[^\\w/ ]", " ", normalized, flags=re.UNICODE)
+        normalized_all = re.sub(r"[^\w/ ]", " ", normalized, flags=re.UNICODE)
         for field, labels in GAME_LABELS.items():
             if any(word in normalized_ascii or word in normalized_all for word in labels):
                 labels_found.append((field, index, item))
@@ -1200,7 +1200,7 @@ class AzToolApp:
             else:
                 self._rebirth_notified_for = None
                 self.rebirth_result.set(
-                    f"الهدف التالي: الريبيرث {target} من 95\n"
+                    f"الهدف التالي: الريبيرث {target} من {MAX_REBIRTH_LEVEL}\n"
                     f"التكلفة: {format_game_money(cost)} | رصيدك: {format_game_money(balance)}\n"
                     f"المتبقي: {format_game_money(remaining)} | التقدم: {progress:.2f}%\n{eta}"
                 )
