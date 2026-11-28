@@ -44,7 +44,7 @@ def calculate_afk_earnings(income_per_second, elapsed_seconds):
 def income_to_qi(amount, unit):
     unit = str(unit or "").strip().upper()
     if unit not in UNIT_TO_QI:
-        raise ValueError("اختر وحدة دخل صحيحة: QI أو SX أو SP أو OC أو NO.")
+        raise ValueError("اختر وحدة دخل صحيحة: QA أو QI أو SX أو SP أو OC أو NO.")
     amount = float(amount)
     if amount < 0:
         raise ValueError("المبلغ لا يمكن أن يكون سالباً.")
