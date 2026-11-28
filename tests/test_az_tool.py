@@ -37,6 +37,22 @@ class UtilityTests(unittest.TestCase):
         self.assertEqual(values["jumps"], 125)
         self.assertEqual(values["rebirth"], 7)
 
+    def test_game_monitor_parser_reads_arabic_labels_and_values_below(self):
+        def box(x, y, w=60, h=18):
+            return [[x, y], [x+w, y], [x+w, y+h], [x, y+h]]
+        detections = [
+            [box(10, 10), "الرصيد"],
+            [box(15, 34), "45.2sx"],
+            [box(10, 75), "النطات"],
+            [box(15, 99), "1250"],
+            [box(10, 140), "الريبيرث"],
+            [box(15, 164), "8"],
+        ]
+        values = az_tool.parse_game_monitor_text(detections)
+        self.assertEqual(values["balance"], str(rebirth_data.parse_game_money("45.2sx")))
+        self.assertEqual(values["jumps"], 1250)
+        self.assertEqual(values["rebirth"], 8)
+
     def test_game_monitor_parser_does_not_guess_unlabeled_numbers(self):
         detections = [[[[10, 10], [60, 10], [60, 25], [10, 25]], "999sx"]]
         self.assertEqual(az_tool.parse_game_monitor_text(detections), {})
