@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone
 from PIL import Image, ImageEnhance, ImageTk, ImageChops, ImageStat
+from rebirth_data import REBIRTH_COSTS, JUMP_COSTS, parse_game_money, format_game_money, remaining_time
 
 APP_NAME = "az tool"
 LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
@@ -230,8 +231,8 @@ class AzToolApp:
     def __init__(self, root):
         self.root = root
         self.root.title(APP_NAME)
-        self.root.geometry("680x1050")
-        self.root.minsize(620, 900)
+        self.root.geometry("900x900")
+        self.root.minsize(820, 820)
         self.root.configure(bg=BG)
         self._background_original = None
         self._background_photo = None
@@ -301,6 +302,13 @@ class AzToolApp:
         self.forecast_hours = tk.StringVar(value="0")
         self.forecast_minutes = tk.StringVar(value="0")
         self.forecast_result = tk.StringVar(value="أدخل الدخل والمدة ثم اضغط احسب.")
+        self.current_balance = tk.StringVar(value=str(self.state.get("game_balance", "0")))
+        self.balance_unit = tk.StringVar(value=str(self.state.get("game_balance_unit", "QI")).upper())
+        self.current_rebirth = tk.StringVar(value=str(self.state.get("current_rebirth", "0")))
+        self.jump_target = tk.StringVar(value="10")
+        self.rebirth_result = tk.StringVar(value="أدخل رصيدك الحالي واضغط تحديث.")
+        self.jump_result = tk.StringVar(value="اختر رقم النطة لحساب تكلفة الشريحة.")
+        self._rebirth_notified_for = None
         try:
             self._afk_last_sync_elapsed = max(
                 0.0, float(self.state.get("afk_last_sync_elapsed", self._afk_elapsed))
@@ -478,13 +486,28 @@ class AzToolApp:
         webbrowser.open("https://discord.gg/4W3CCJyfN", new=2)
 
     def _build(self):
-        header = tk.Frame(self.root, bg=BG)
+        # Scrollable page keeps the square window usable without clipping lower cards.
+        self.main_canvas = tk.Canvas(self.root, bg=BG, highlightthickness=0, borderwidth=0)
+        self.main_scrollbar = tk.Scrollbar(self.root, orient="vertical", command=self.main_canvas.yview,
+                                           bg=PANEL_2, troughcolor=BG, activebackground=ACCENT)
+        self.main_canvas.configure(yscrollcommand=self.main_scrollbar.set)
+        self.main_scrollbar.pack(side="right", fill="y")
+        self.main_canvas.pack(side="left", fill="both", expand=True)
+        self.page_frame = tk.Frame(self.main_canvas, bg=BG)
+        self._page_window = self.main_canvas.create_window((0, 0), window=self.page_frame, anchor="nw")
+        self.page_frame.bind("<Configure>", lambda _e: self.main_canvas.configure(
+            scrollregion=self.main_canvas.bbox("all")))
+        self.main_canvas.bind("<Configure>", lambda e: self.main_canvas.itemconfigure(
+            self._page_window, width=e.width))
+        self.main_canvas.bind_all("<MouseWheel>", lambda e: self.main_canvas.yview_scroll(
+            int(-1 * (e.delta / 120)), "units"))
+        header = tk.Frame(self.page_frame, bg=BG)
         header.pack(fill="x", padx=28, pady=(22, 8))
         self.label(header, "az Tool", size=25, bold=True).pack(anchor="w")
         self.label(header, "LICENSED DESKTOP CLIENT", MUTED, 9, True).pack(anchor="w", pady=(2, 0))
         self.button(header, "سيرفر الدسكورد", lambda: self.open_discord_server(), color="#29314a").pack(anchor="e", pady=(0, 4))
 
-        license_card = self.card(self.root, "License", "Activate your key on this device.")
+        license_card = self.card(self.page_frame, "License", "Activate your key on this device.")
         self.license_card = license_card
         row = tk.Frame(license_card, bg=PANEL)
         row.pack(fill="x")
@@ -496,7 +519,7 @@ class AzToolApp:
         self.label(expiry_row, "Subscription", MUTED, 9).pack(side="left")
         tk.Label(expiry_row, textvariable=self.expiry, bg=PANEL, fg=TEXT, font=("Segoe UI", 9, "bold")).pack(side="right")
 
-        self.gated_frame = tk.Frame(self.root, bg=BG)
+        self.gated_frame = tk.Frame(self.page_frame, bg=BG)
         self.gated_frame.pack(fill="x")
 
         self.discord_card = self.card(self.gated_frame, "Discord verification", "Enter your Discord user ID, then approve the bot's verification request.")
@@ -573,6 +596,38 @@ class AzToolApp:
             wraplength=520, justify="left"
         ).pack(anchor="w")
 
+        self.rebirth_card = self.card(
+            self.gated_frame, "Money & Rebirth Monitor",
+            "تابع رصيدك، هدف الريبيرث التالي، والوقت المتوقع حسب دخلك بالثانية."
+        )
+        balance_row = tk.Frame(self.rebirth_card, bg=PANEL)
+        balance_row.pack(fill="x", pady=(4, 8))
+        self.label(balance_row, "رصيدك الحالي", MUTED, 9).pack(side="left", padx=(0, 8))
+        self.entry(balance_row, self.current_balance).pack(side="left", fill="x", expand=True, ipady=6)
+        self.balance_unit_menu = tk.OptionMenu(
+            balance_row, self.balance_unit, "K", "M", "B", "T", "Qa", "QI", "SX", "SP", "OC", "NO"
+        )
+        self.balance_unit_menu.configure(bg=PANEL_2, fg=TEXT, activebackground=ACCENT,
+                                         activeforeground="white", relief="flat",
+                                         highlightthickness=0, width=5)
+        self.balance_unit_menu["menu"].configure(bg=PANEL_2, fg=TEXT,
+                                                 activebackground=ACCENT, activeforeground="white")
+        self.balance_unit_menu.pack(side="left", padx=(8, 0))
+        rebirth_row = tk.Frame(self.rebirth_card, bg=PANEL)
+        rebirth_row.pack(fill="x", pady=(0, 8))
+        self.label(rebirth_row, "الريبيرث الحالي", MUTED, 9).pack(side="left", padx=(0, 8))
+        self.entry(rebirth_row, self.current_rebirth).pack(side="left", fill="x", expand=True, ipady=6)
+        self.button(rebirth_row, "تحديث الهدف", self.update_rebirth_tracker, color=ACCENT).pack(side="left", padx=(8, 0))
+        tk.Label(self.rebirth_card, textvariable=self.rebirth_result, bg=PANEL, fg=GREEN,
+                 font=("Segoe UI", 10, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(4, 10))
+        jump_row = tk.Frame(self.rebirth_card, bg=PANEL)
+        jump_row.pack(fill="x", pady=(4, 0))
+        self.label(jump_row, "بداية شريحة النطات (كل 10)", MUTED, 9).pack(side="left", padx=(0, 8))
+        self.entry(jump_row, self.jump_target).pack(side="left", fill="x", expand=True, ipady=6)
+        self.button(jump_row, "احسب التكلفة", self.calculate_jump_cost, color="#29314a").pack(side="left", padx=(8, 0))
+        tk.Label(self.rebirth_card, textvariable=self.jump_result, bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 9, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(8, 0))
+
         self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • Notification-area detection")
         radar_card = self.radar_card
         self.radar_button = self.button(radar_card, "START RADAR", self.toggle_radar, color=GREEN, fg="#07110d")
@@ -588,7 +643,7 @@ class AzToolApp:
         self.radar_card.pack_forget()
         # F5 is registered globally below so it works while Fortnite is focused.
 
-        footer = tk.Frame(self.root, bg=BG)
+        footer = tk.Frame(self.page_frame, bg=BG)
         footer.pack(fill="x", padx=28, pady=(10, 18))
         self.label(footer, "Radar privacy details are shown in the Spawn Radar section. Screen images are uploaded only after a Spawn match.", MUTED, 8).pack(anchor="w")
         if self.license_key.get().strip():
@@ -602,7 +657,7 @@ class AzToolApp:
                 self.discord_card.pack(fill="x", padx=24, pady=8)
         else:
             self.discord_card.pack_forget()
-        for card in (self.afk_card, self.forecast_card, self.radar_card):
+        for card in (self.afk_card, self.forecast_card, self.rebirth_card, self.radar_card):
             if not card.winfo_manager():
                 card.pack(fill="x", padx=24, pady=8)
         if self._link_verified:
@@ -618,6 +673,7 @@ class AzToolApp:
         self.discord_card.pack_forget()
         self.afk_card.pack_forget()
         self.forecast_card.pack_forget()
+        self.rebirth_card.pack_forget()
         self.radar_card.pack_forget()
 
     def activate(self):
@@ -833,6 +889,70 @@ class AzToolApp:
             user32.UnregisterHotKey(None, 0xA501)
         except Exception as exc:
             self.root.after(0, lambda err=str(exc): self.afk_status.set("Global F5 error: " + err[:90]))
+
+    def update_rebirth_tracker(self):
+        try:
+            balance = parse_game_money(f"{self.current_balance.get().strip()}{self.balance_unit.get().strip()}")
+            current = int(self.current_rebirth.get().strip())
+            if current < 0 or current > len(REBIRTH_COSTS):
+                raise ValueError("الريبيرث الحالي يجب أن يكون بين 0 و95.")
+            self.state["game_balance"] = self.current_balance.get().strip()
+            self.state["game_balance_unit"] = self.balance_unit.get().strip()
+            self.state["current_rebirth"] = current
+            save_state(self.state)
+            if current == len(REBIRTH_COSTS):
+                self.rebirth_result.set("اكتملت جميع الريبيرثات — وصلت إلى الريبيرث 95.")
+                return
+            target = current + 1
+            cost = REBIRTH_COSTS[current]
+            remaining = max(0, cost - balance)
+            progress = min(100.0, float((balance / cost) * 100)) if cost else 100.0
+            try:
+                income = parse_game_money(f"{self.base_income.get().strip()}{self.income_unit.get().strip()}")
+                seconds = remaining_time(balance, income)[2]
+                eta = f"الوقت المتوقع: {self._format_duration(seconds)}"
+            except Exception:
+                eta = "أدخل دخلك بالثانية في إعدادات AFK لحساب الوقت."
+            if remaining <= 0:
+                self.rebirth_result.set(
+                    f"جاهز للريبيرث {target}! الرصيد {format_game_money(balance)} / التكلفة {format_game_money(cost)} "
+                    f"(100.00%).\n{eta}"
+                )
+                if self._rebirth_notified_for != target:
+                    self._rebirth_notified_for = target
+                    messagebox.showinfo("AZ Tool", f"رصيدك يكفي للريبيرث {target}!")
+            else:
+                self._rebirth_notified_for = None
+                self.rebirth_result.set(
+                    f"الهدف التالي: الريبيرث {target} من 95\n"
+                    f"التكلفة: {format_game_money(cost)} | رصيدك: {format_game_money(balance)}\n"
+                    f"المتبقي: {format_game_money(remaining)} | التقدم: {progress:.2f}%\n{eta}"
+                )
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            self.rebirth_result.set(str(exc) or "تحقق من الرصيد والريبيرث الحالي.")
+
+    @staticmethod
+    def _format_duration(seconds):
+        seconds = max(0, int(float(seconds)))
+        days, seconds = divmod(seconds, 86400)
+        hours, seconds = divmod(seconds, 3600)
+        minutes, seconds = divmod(seconds, 60)
+        if days:
+            return f"{days} يوم و{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    def calculate_jump_cost(self):
+        try:
+            start = int(self.jump_target.get().strip())
+            if start < 0 or start > 950 or start % 10:
+                raise ValueError("أدخل بداية شريحة صحيحة من 0 إلى 950 وبفواصل 10.")
+            index = start // 10
+            cost = JUMP_COSTS[index]
+            self.jump_result.set(
+                f"تكلفة النطات {start}–{start + 10}: {format_game_money(cost)}"
+            )
+        except (ValueError, IndexError) as exc:
+            self.jump_result.set(str(exc) or "رقم النطة غير صحيح.")
 
     def calculate_expected_income(self):
         """Calculate a separate forecast; do not persist or sync it to the money ledger."""
