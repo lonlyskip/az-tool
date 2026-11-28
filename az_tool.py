@@ -46,7 +46,7 @@ def _ocr_number_tokens(text):
     cleaned = (str(text or "").replace(",", "").replace("O", "0").replace("o", "0")
                .replace("٫", ".").replace("٬", ""))
     return re.findall(
-        r"(?<![A-Za-z])\d+(?:\\.\d+)?\\s*(?:Qa|Qi|Sx|Sp|Oc|No|K|M|B|T)?",
+        r"(?<![A-Za-z])\d+(?:\.\d+)?\s*(?:Qa|Qi|Sx|Sp|Oc|No|K|M|B|T)?",
         cleaned, re.I
     )
 
