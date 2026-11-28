@@ -221,3 +221,5 @@ jobs:
           This build is not Authenticode-signed. Windows may show an Unknown publisher warning. Antivirus detections are not ruled out by successful build validation.
           "@
           gh release create $tag "AZ-Tool-Windows.zip" --title "az Tool Windows build ${{ github.run_number }}" --notes $notes
+
+# Rebuild after AZ Tool range calculator updates.
