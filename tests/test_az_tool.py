@@ -18,6 +18,29 @@ class UtilityTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 az_tool.calculate_afk_earnings(income, 10)
 
+    def test_game_monitor_parser_reads_labeled_stats(self):
+        def box(x, y, w=50, h=16):
+            return [[x, y], [x+w, y], [x+w, y+h], [x, y+h]]
+        detections = [
+            [box(10, 10), "Money"],
+            [box(75, 10), "12.5sx"],
+            [box(10, 45), "Income"],
+            [box(75, 45), "2.4sp"],
+            [box(10, 80), "Jumps"],
+            [box(75, 80), "125"],
+            [box(10, 115), "Rebirth"],
+            [box(75, 115), "7"],
+        ]
+        values = az_tool.parse_game_monitor_text(detections)
+        self.assertEqual(values["balance"], str(rebirth_data.parse_game_money("12.5sx")))
+        self.assertEqual(values["income"], str(rebirth_data.parse_game_money("2.4sp")))
+        self.assertEqual(values["jumps"], 125)
+        self.assertEqual(values["rebirth"], 7)
+
+    def test_game_monitor_parser_does_not_guess_unlabeled_numbers(self):
+        detections = [[[[10, 10], [60, 10], [60, 25], [10, 25]], "999sx"]]
+        self.assertEqual(az_tool.parse_game_monitor_text(detections), {})
+
     def test_device_id_is_stable_for_same_environment(self):
         with patch.dict(os.environ, {
             "COMPUTERNAME": "TEST-PC",
