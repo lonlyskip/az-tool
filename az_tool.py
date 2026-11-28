@@ -46,7 +46,7 @@ def _ocr_number_tokens(text):
     cleaned = (str(text or "").replace(",", "").replace("O", "0").replace("o", "0")
                .replace("٫", ".").replace("٬", ""))
     return re.findall(
-        r"(?<![A-Za-z])\\d+(?:\\.\\d+)?\\s*(?:Qa|Qi|Sx|Sp|Oc|No|K|M|B|T)?",
+        r"(?<![A-Za-z])\d+(?:\\.\d+)?\\s*(?:Qa|Qi|Sx|Sp|Oc|No|K|M|B|T)?",
         cleaned, re.I
     )
 
@@ -78,7 +78,7 @@ def parse_game_monitor_text(detections):
         for label in items:
             normalized = label["text"].lower()
             normalized_ascii = re.sub(r"[^a-z0-9/ ]", " ", normalized)
-            normalized_all = re.sub(r"[^\\w/ ]", " ", normalized, flags=re.UNICODE)
+            normalized_all = re.sub(r"[^\w/ ]", " ", normalized, flags=re.UNICODE)
             if not any(word in normalized_ascii or word in normalized_all for word in labels):
                 continue
 
