@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone
 from PIL import Image, ImageEnhance, ImageTk, ImageChops, ImageStat
-from rebirth_data import REBIRTH_COSTS, JUMP_COSTS, parse_game_money, format_game_money
+from rebirth_data import MAX_REBIRTH_LEVEL, REBIRTH_COSTS, JUMP_COSTS, parse_game_money, format_game_money
 
 APP_NAME = "az tool"
 LICENSE_SERVER = "https://az-tool-license.a-abdilaziz-a.workers.dev"
@@ -1164,14 +1164,20 @@ class AzToolApp:
         try:
             balance = parse_game_money(f"{self.current_balance.get().strip()}{self.balance_unit.get().strip()}")
             current = int(self.current_rebirth.get().strip())
-            if current < 0 or current > len(REBIRTH_COSTS):
-                raise ValueError("الريبيرث الحالي يجب أن يكون بين 0 و95.")
+            if current < 0 or current > MAX_REBIRTH_LEVEL:
+                raise ValueError(f"الريبيرث الحالي يجب أن يكون بين 0 و{MAX_REBIRTH_LEVEL}.")
             self.state["game_balance"] = self.current_balance.get().strip()
             self.state["game_balance_unit"] = self.balance_unit.get().strip()
             self.state["current_rebirth"] = current
             save_state(self.state)
-            if current == len(REBIRTH_COSTS):
-                self.rebirth_result.set("اكتملت جميع الريبيرثات — وصلت إلى الريبيرث 95.")
+            if current >= MAX_REBIRTH_LEVEL:
+                self.rebirth_result.set(f"وصلت إلى الحد الأقصى للريبيرث: {MAX_REBIRTH_LEVEL}.")
+                return
+            if current >= len(REBIRTH_COSTS):
+                self.rebirth_result.set(
+                    f"تم تسجيل الريبيرث {current} من {MAX_REBIRTH_LEVEL}. "
+                    "بيانات تكلفة الريبيرثات من 96 إلى 100 غير متوفرة بعد."
+                )
                 return
             target = current + 1
             cost = REBIRTH_COSTS[current]
@@ -1231,8 +1237,10 @@ class AzToolApp:
         try:
             start = int(self.rebirth_from.get().strip())
             end = int(self.rebirth_to.get().strip())
-            if start < 0 or end > len(REBIRTH_COSTS) or start >= end:
-                raise ValueError("أدخل نطاقًا صحيحًا من 0 إلى 95، والبداية أقل من النهاية.")
+            if start < 0 or end > MAX_REBIRTH_LEVEL or start >= end:
+                raise ValueError(f"أدخل نطاقًا صحيحًا من 0 إلى {MAX_REBIRTH_LEVEL}، والبداية أقل من النهاية.")
+            if end > len(REBIRTH_COSTS):
+                raise ValueError("الحد الأقصى للريبيرث 100، لكن تكاليف 96–100 غير مضافة للجدول حتى الآن.")
             # REBIRTH_COSTS[n-1] is the full cost of rebirth n.
             cost = sum(REBIRTH_COSTS[start:end], start=REBIRTH_COSTS[0] * 0)
             self.rebirth_range_result.set(
