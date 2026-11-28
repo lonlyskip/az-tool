@@ -403,7 +403,7 @@ class AzToolApp:
         widget = tk.Label(
             parent, text=text, bg=parent["bg"], fg=color,
             font=("Segoe UI", size, "bold" if bold else "normal"),
-            wraplength=520, justify="left", anchor="w"
+            wraplength=420, justify="left", anchor="w"
         )
         # Keep long descriptions readable when the window is resized.
         def update_wrap(event=None):
@@ -418,12 +418,12 @@ class AzToolApp:
         return widget
 
     def card(self, parent, title, subtitle=None):
-        frame = tk.Frame(parent, bg=PANEL, padx=18, pady=16,
+        frame = tk.Frame(parent, bg=PANEL, padx=12, pady=10,
                          highlightthickness=1, highlightbackground="#242b3b")
-        frame.pack(fill="x", padx=24, pady=8)
-        self.label(frame, title, size=11, bold=True).pack(anchor="w")
+        frame.pack(fill="x", padx=14, pady=4)
+        self.label(frame, title, size=10, bold=True).pack(anchor="w")
         if subtitle:
-            self.label(frame, subtitle, MUTED, 9).pack(anchor="w", pady=(4, 10))
+            self.label(frame, subtitle, MUTED, 8).pack(anchor="w", pady=(2, 5))
         return frame
 
     def entry(self, parent, variable, show=None):
@@ -516,9 +516,8 @@ class AzToolApp:
         self.main_canvas.bind_all("<MouseWheel>", lambda e: self.main_canvas.yview_scroll(
             int(-1 * (e.delta / 120)), "units"))
         header = tk.Frame(self.page_frame, bg=BG)
-        header.pack(fill="x", padx=28, pady=(22, 8))
-        self.label(header, "az Tool", size=25, bold=True).pack(anchor="w")
-        self.label(header, "LICENSED DESKTOP CLIENT", MUTED, 9, True).pack(anchor="w", pady=(2, 0))
+        header.pack(fill="x", padx=18, pady=(12, 4))
+        self.label(header, "az Tool", size=21, bold=True).pack(anchor="w")
         self.button(header, "سيرفر الدسكورد", lambda: self.open_discord_server(), color="#29314a").pack(anchor="e", pady=(0, 4))
 
         license_card = self.card(self.page_frame, "License", "Activate your key on this device.")
@@ -570,8 +569,7 @@ class AzToolApp:
                     self.reset_afk_earnings, color="#29314a").pack(fill="x", pady=(10, 0))
 
         self.forecast_card = self.card(
-            self.gated_frame, "حاسبة الدخل المتوقع والتكلفة",
-            "احسب الدخل المتوقع خلال مدة محددة، واستخدم الحاسبات المنفصلة لتقدير تكاليف الأهداف."
+            self.gated_frame, "الدخل المتوقع والتكلفة"
         )
         forecast_income_row = tk.Frame(self.forecast_card, bg=PANEL)
         forecast_income_row.pack(fill="x", pady=(4, 8))
@@ -588,7 +586,7 @@ class AzToolApp:
             activeforeground="white"
         )
         self.forecast_unit_menu.pack(side="left", padx=(8, 0))
-        self.label(self.forecast_card, "المدة — تقدر تجمع أيام وساعات ودقائق مع بعض", MUTED, 9).pack(anchor="w", pady=(4, 6))
+        self.label(self.forecast_card, "المدة", MUTED, 8).pack(anchor="w", pady=(2, 4))
         forecast_time_row = tk.Frame(self.forecast_card, bg=PANEL)
         forecast_time_row.pack(fill="x")
         for column, (caption, variable) in enumerate((
@@ -606,21 +604,18 @@ class AzToolApp:
         ).pack(fill="x", pady=(10, 8))
         tk.Label(
             self.forecast_card, textvariable=self.forecast_result,
-            bg=PANEL, fg=GREEN, font=("Segoe UI", 11, "bold"),
+            bg=PANEL, fg=GREEN, font=("Segoe UI", 9, "bold"),
             wraplength=520, justify="left"
         ).pack(anchor="w")
 
-        self.rebirth_card = self.card(
-            self.gated_frame, "منطقة الهدف",
-            "تُقرأ النطات والريبيرث الحالية تلقائيًا من اللعبة عند تفعيل المراقبة. القيم الحالية للعرض فقط."
-        )
+        self.rebirth_card = self.card(self.gated_frame, "منطقة الهدف")
         detected_frame = tk.Frame(self.rebirth_card, bg=PANEL)
-        detected_frame.pack(fill="x", pady=(4, 10))
+        detected_frame.pack(fill="x", pady=(2, 6))
         for column, (caption, variable) in enumerate((
             ("النطات الحالية", self.detected_jumps),
             ("الريبيرث الحالي", self.detected_rebirth),
         )):
-            cell = tk.Frame(detected_frame, bg=PANEL_2, padx=10, pady=9)
+            cell = tk.Frame(detected_frame, bg=PANEL_2, padx=8, pady=6)
             cell.pack(side="left", fill="x", expand=True, padx=(0 if column == 0 else 8, 0))
             self.label(cell, caption, MUTED, 9).pack(anchor="w")
             tk.Label(cell, textvariable=variable, bg=PANEL_2, fg=TEXT,
@@ -645,33 +640,25 @@ class AzToolApp:
             highlightthickness=0, cursor="hand2"
         )
         self.goal_notification_check.pack(anchor="w", pady=(2, 0))
-        self.label(self.rebirth_card,
-                   "المراقبة التلقائية لم تُفعّل بعد؛ لذلك لن تظهر قيم حالية أو إشعارات إنجاز حتى يكتمل قارئ اللعبة.",
-                   MUTED, 9).pack(anchor="w", pady=(6, 0))
+        self.label(self.rebirth_card, "المراقبة التلقائية قيد التجهيز", MUTED, 8).pack(anchor="w", pady=(3, 0))
 
-        self.jump_card = self.card(
-            self.gated_frame, "حاسبة النطات",
-            "احسب مجموع تكلفة جميع الشرائح من نطة البداية إلى نطة النهاية."
-        )
+        self.jump_card = self.card(self.gated_frame, "حاسبة النطات")
         jump_row = tk.Frame(self.jump_card, bg=PANEL)
         jump_row.pack(fill="x")
         self.entry(jump_row, self.jump_from).pack(side="left", fill="x", expand=True, ipady=7)
         self.label(jump_row, "إلى", MUTED, 9).pack(side="left", padx=7)
         self.entry(jump_row, self.jump_to).pack(side="left", fill="x", expand=True, ipady=7)
-        self.button(self.jump_card, "احسب تكلفة النطات", self.calculate_jump_cost, color="#29314a").pack(fill="x", pady=(8, 5))
+        self.button(self.jump_card, "احسب", self.calculate_jump_cost, color="#29314a").pack(fill="x", pady=(5, 3))
         tk.Label(self.jump_card, textvariable=self.jump_result, bg=PANEL, fg=TEXT,
                  font=("Segoe UI", 9, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(2, 0))
 
-        self.rebirth_range_card = self.card(
-            self.gated_frame, "حاسبة الريبيرث",
-            "احسب إجمالي تكلفة الانتقال من ريبيرث إلى ريبيرث."
-        )
+        self.rebirth_range_card = self.card(self.gated_frame, "حاسبة الريبيرث")
         rebirth_range_row = tk.Frame(self.rebirth_range_card, bg=PANEL)
         rebirth_range_row.pack(fill="x")
         self.entry(rebirth_range_row, self.rebirth_from).pack(side="left", fill="x", expand=True, ipady=7)
         self.label(rebirth_range_row, "إلى", MUTED, 9).pack(side="left", padx=7)
         self.entry(rebirth_range_row, self.rebirth_to).pack(side="left", fill="x", expand=True, ipady=7)
-        self.button(self.rebirth_range_card, "احسب تكلفة الريبيرث", self.calculate_rebirth_range, color="#29314a").pack(fill="x", pady=(8, 5))
+        self.button(self.rebirth_range_card, "احسب", self.calculate_rebirth_range, color="#29314a").pack(fill="x", pady=(5, 3))
         tk.Label(self.rebirth_range_card, textvariable=self.rebirth_range_result, bg=PANEL, fg=TEXT,
                  font=("Segoe UI", 9, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(2, 0))
 
@@ -695,7 +682,7 @@ class AzToolApp:
 
         footer = tk.Frame(self.page_frame, bg=BG)
         footer.pack(fill="x", padx=28, pady=(10, 18))
-        self.label(footer, "Radar privacy details are shown in the Spawn Radar section. Screen images are uploaded only after a Spawn match.", MUTED, 8).pack(anchor="w")
+        # Feature details stay inside their own sections.
         if self.license_key.get().strip():
             self.status.set("Saved key loaded — activate to validate")
         self.root.after(1000, self._refresh_link_state)
@@ -709,7 +696,7 @@ class AzToolApp:
             self.discord_card.pack_forget()
         for card in (self.afk_card, self.forecast_card, self.rebirth_card, self.jump_card, self.rebirth_range_card, self.radar_card):
             if not card.winfo_manager():
-                card.pack(fill="x", padx=24, pady=8)
+                card.pack(fill="x", padx=14, pady=4)
         if self._link_verified:
             self.radar_button.config(state="normal", bg=GREEN)
         else:
