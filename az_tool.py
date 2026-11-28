@@ -32,20 +32,27 @@ EVENT_COOLDOWN_SECONDS = 1.5
 
 GAME_MONITOR_INTERVAL = 1.5
 GAME_LABELS = {
-    "balance": ("money", "cash", "coins", "balance", "wallet"),
-    "income": ("income", "per second", "earnings", "earn/s", "/sec", "/s"),
-    "rebirth": ("rebirth", "rebirths"),
-    "jumps": ("jumps", "jump", "نطات", "نطة"),
+    "balance": ("money", "cash", "coins", "balance", "wallet", "currency",
+                "فلوس", "الفلوس", "رصيد", "الرصيد", "مال"),
+    "income": ("income", "per second", "earnings", "earn/s", "/sec", "/s",
+               "دخل", "الدخل", "ربح", "الربح", "في الثانية"),
+    "rebirth": ("rebirth", "rebirths", "rebirths:",
+                "ريبيرث", "الريبيرث", "ريبرث", "إعادة الولادة"),
+    "jumps": ("jumps", "jump", "نطات", "نطة", "النطات", "القفزات"),
 }
 
 
 def _ocr_number_tokens(text):
-    cleaned = str(text or "").replace(",", "").replace("O", "0").replace("o", "0")
-    return re.findall(r"(?<![A-Za-z])\d+(?:\.\d+)?\s*(?:Qa|Qi|Sx|Sp|Oc|No|K|M|B|T)?", cleaned, re.I)
+    cleaned = (str(text or "").replace(",", "").replace("O", "0").replace("o", "0")
+               .replace("٫", ".").replace("٬", ""))
+    return re.findall(
+        r"(?<![A-Za-z])\\d+(?:\\.\\d+)?\\s*(?:Qa|Qi|Sx|Sp|Oc|No|K|M|B|T)?",
+        cleaned, re.I
+    )
 
 
 def parse_game_monitor_text(detections):
-    """Extract only numeric values located next to recognizable stat labels."""
+    """Read each stat independently from OCR text on the stats panel."""
     items = []
     for item in detections or []:
         if len(item) < 2:
@@ -56,42 +63,64 @@ def parse_game_monitor_text(detections):
         try:
             xs = [float(p[0]) for p in box]
             ys = [float(p[1]) for p in box]
-            items.append({"text": raw_text, "x": min(xs), "y": min(ys),
-                          "right": max(xs), "bottom": max(ys),
-                          "cx": (min(xs)+max(xs))/2, "cy": (min(ys)+max(ys))/2})
+            items.append({
+                "text": raw_text, "x": min(xs), "y": min(ys),
+                "right": max(xs), "bottom": max(ys),
+                "cx": (min(xs) + max(xs)) / 2,
+                "cy": (min(ys) + max(ys)) / 2,
+            })
         except (TypeError, ValueError, IndexError):
             continue
+
     result = {}
     for field, labels in GAME_LABELS.items():
         choices = []
         for label in items:
-            normalized = re.sub(r"[^a-z0-9/ ]", " ", label["text"].lower())
-            if not any(word in normalized for word in labels):
+            normalized = label["text"].lower()
+            normalized_ascii = re.sub(r"[^a-z0-9/ ]", " ", normalized)
+            normalized_all = re.sub(r"[^\\w/ ]", " ", normalized, flags=re.UNICODE)
+            if not any(word in normalized_ascii or word in normalized_all for word in labels):
                 continue
+
+            # Some OCR engines return "Money 12.5sx" as one text box.
             own = _ocr_number_tokens(label["text"])
             if own:
-                choices.append((0, own[-1].replace(" ", "")))
+                choices.append((-1000, own[-1].replace(" ", "")))
+
             for value in items:
                 if value is label:
                     continue
-                dx, dy = value["x"] - label["right"], value["cy"] - label["cy"]
-                if not ((-8 <= dx <= 260 and abs(dy) <= 34) or
-                        (abs(dx) <= 180 and 0 < dy <= 48)):
-                    continue
                 tokens = _ocr_number_tokens(value["text"])
-                if tokens:
-                    choices.append((abs(dy)+max(0, dx)*0.18, tokens[0].replace(" ", "")))
-        if choices:
-            token = min(choices, key=lambda item: item[0])[1]
-            try:
-                if field in ("balance", "income"):
-                    result[field] = str(parse_game_money(token))
-                else:
-                    digits = re.sub(r"[^0-9]", "", token)
-                    if digits:
-                        result[field] = int(digits)
-            except (ValueError, ArithmeticError):
-                pass
+                if not tokens:
+                    continue
+
+                dx = value["x"] - label["right"]
+                dy = value["cy"] - label["cy"]
+                # Accept same-row values and values directly below a label.
+                same_row = -18 <= dx <= 520 and abs(dy) <= 58
+                below = abs(value["cx"] - label["cx"]) <= 300 and 0 < dy <= 125
+                if not (same_row or below):
+                    continue
+
+                # Prefer same-row, close values; penalize values below the label.
+                score = abs(dy) * 1.4 + max(0, dx) * 0.10
+                if below and not same_row:
+                    score += 35
+                choices.append((score, tokens[0].replace(" ", "")))
+
+        if not choices:
+            continue
+
+        token = min(choices, key=lambda item: item[0])[1]
+        try:
+            if field in ("balance", "income"):
+                result[field] = str(parse_game_money(token))
+            else:
+                digits = re.sub(r"[^0-9]", "", token)
+                if digits:
+                    result[field] = int(digits)
+        except (ValueError, ArithmeticError):
+            continue
     return result
 
 MONEY_UNITS = ("QA", "QI", "SX", "SP", "OC", "NO")
