@@ -7,6 +7,7 @@ on:
       - az-tool-rebuild
     paths:
       - "az_tool.py"
+      - "rebirth_data.py"
       - "requirements.txt"
       - "make_icon.py"
       - "tests/**"
