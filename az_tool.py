@@ -640,6 +640,7 @@ class AzToolApp:
 
         self.discord_card.pack_forget()
         self.afk_card.pack_forget()
+        self.rebirth_card.pack_forget()
         self.radar_card.pack_forget()
         # F5 is registered globally below so it works while Fortnite is focused.
 
