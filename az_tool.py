@@ -312,9 +312,13 @@ class AzToolApp:
         self.current_balance = tk.StringVar(value=str(self.state.get("game_balance", "0")))
         self.balance_unit = tk.StringVar(value=str(self.state.get("game_balance_unit", "QI")).upper())
         self.current_rebirth = tk.StringVar(value=str(self.state.get("current_rebirth", "0")))
-        self.jump_target = tk.StringVar(value="10")
+        self.jump_from = tk.StringVar(value="0")
+        self.jump_to = tk.StringVar(value="10")
+        self.rebirth_from = tk.StringVar(value="0")
+        self.rebirth_to = tk.StringVar(value="1")
         self.rebirth_result = tk.StringVar(value="أدخل رصيدك الحالي واضغط تحديث.")
-        self.jump_result = tk.StringVar(value="اختر رقم النطة لحساب تكلفة الشريحة.")
+        self.jump_result = tk.StringVar(value="حدد نطاق النطات ثم اضغط احسب.")
+        self.rebirth_range_result = tk.StringVar(value="حدد نطاق الريبيرث ثم اضغط احسب.")
         self._rebirth_notified_for = None
         try:
             self._afk_last_sync_elapsed = max(
@@ -604,8 +608,8 @@ class AzToolApp:
         ).pack(anchor="w")
 
         self.rebirth_card = self.card(
-            self.gated_frame, "Money & Rebirth Monitor",
-            "تابع رصيدك، هدف الريبيرث التالي، والوقت المتوقع حسب دخلك بالثانية."
+            self.gated_frame, "Money & Rebirth",
+            "حساب الهدف الحالي يعتمد على إدخال الرصيد يدويًا مؤقتًا. قراءة الرصيد والريبيرث تلقائيًا ستضاف لاحقًا."
         )
         balance_row = tk.Frame(self.rebirth_card, bg=PANEL)
         balance_row.pack(fill="x", pady=(4, 8))
@@ -627,13 +631,24 @@ class AzToolApp:
         self.button(rebirth_row, "تحديث الهدف", self.update_rebirth_tracker, color=ACCENT).pack(side="left", padx=(8, 0))
         tk.Label(self.rebirth_card, textvariable=self.rebirth_result, bg=PANEL, fg=GREEN,
                  font=("Segoe UI", 10, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(4, 10))
+        self.label(self.rebirth_card, "حاسبة النطات — احسب مجموع التكلفة من رقم إلى رقم", MUTED, 9).pack(anchor="w", pady=(8, 5))
         jump_row = tk.Frame(self.rebirth_card, bg=PANEL)
-        jump_row.pack(fill="x", pady=(4, 0))
-        self.label(jump_row, "بداية شريحة النطات (كل 10)", MUTED, 9).pack(side="left", padx=(0, 8))
-        self.entry(jump_row, self.jump_target).pack(side="left", fill="x", expand=True, ipady=6)
-        self.button(jump_row, "احسب التكلفة", self.calculate_jump_cost, color="#29314a").pack(side="left", padx=(8, 0))
+        jump_row.pack(fill="x")
+        self.entry(jump_row, self.jump_from).pack(side="left", fill="x", expand=True, ipady=7)
+        self.label(jump_row, "إلى", MUTED, 9).pack(side="left", padx=7)
+        self.entry(jump_row, self.jump_to).pack(side="left", fill="x", expand=True, ipady=7)
+        self.button(self.rebirth_card, "احسب مجموع النطات", self.calculate_jump_cost, color="#29314a").pack(fill="x", pady=(8, 5))
         tk.Label(self.rebirth_card, textvariable=self.jump_result, bg=PANEL, fg=TEXT,
-                 font=("Segoe UI", 9, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(8, 0))
+                 font=("Segoe UI", 9, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(2, 10))
+        self.label(self.rebirth_card, "حاسبة الريبيرث — مجموع تكلفة الانتقال بين مستويين", MUTED, 9).pack(anchor="w", pady=(4, 5))
+        rebirth_range_row = tk.Frame(self.rebirth_card, bg=PANEL)
+        rebirth_range_row.pack(fill="x")
+        self.entry(rebirth_range_row, self.rebirth_from).pack(side="left", fill="x", expand=True, ipady=7)
+        self.label(rebirth_range_row, "إلى", MUTED, 9).pack(side="left", padx=7)
+        self.entry(rebirth_range_row, self.rebirth_to).pack(side="left", fill="x", expand=True, ipady=7)
+        self.button(self.rebirth_card, "احسب مجموع الريبيرث", self.calculate_rebirth_range, color="#29314a").pack(fill="x", pady=(8, 5))
+        tk.Label(self.rebirth_card, textvariable=self.rebirth_range_result, bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 9, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(2, 0))
 
         self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • Notification-area detection")
         radar_card = self.radar_card
@@ -951,16 +966,34 @@ class AzToolApp:
 
     def calculate_jump_cost(self):
         try:
-            start = int(self.jump_target.get().strip())
-            if start < 0 or start > 950 or start % 10:
-                raise ValueError("أدخل بداية شريحة صحيحة من 0 إلى 950 وبفواصل 10.")
-            index = start // 10
-            cost = JUMP_COSTS[index]
+            start = int(self.jump_from.get().strip())
+            end = int(self.jump_to.get().strip())
+            if start < 0 or end > 960 or start >= end or start % 10 or end % 10:
+                raise ValueError("أدخل نطاقًا صحيحًا بفواصل 10، من 0 إلى 960، والبداية أقل من النهاية.")
+            first_index = start // 10
+            last_index = end // 10
+            cost = sum(JUMP_COSTS[first_index:last_index], start=JUMP_COSTS[0] * 0)
             self.jump_result.set(
-                f"تكلفة النطات {start}–{start + 10}: {format_game_money(cost)}"
+                f"إجمالي تكلفة النطات {start}–{end}: {format_game_money(cost)}\\n"
+                f"عدد الشرائح: {last_index - first_index}"
             )
         except (ValueError, IndexError) as exc:
-            self.jump_result.set(str(exc) or "رقم النطة غير صحيح.")
+            self.jump_result.set(str(exc) or "تحقق من نطاق النطات.")
+
+    def calculate_rebirth_range(self):
+        try:
+            start = int(self.rebirth_from.get().strip())
+            end = int(self.rebirth_to.get().strip())
+            if start < 0 or end > len(REBIRTH_COSTS) or start >= end:
+                raise ValueError("أدخل نطاقًا صحيحًا من 0 إلى 95، والبداية أقل من النهاية.")
+            # REBIRTH_COSTS[n-1] is the full cost of rebirth n.
+            cost = sum(REBIRTH_COSTS[start:end], start=REBIRTH_COSTS[0] * 0)
+            self.rebirth_range_result.set(
+                f"إجمالي تكلفة الريبيرث {start} إلى {end}: {format_game_money(cost)}\\n"
+                f"عدد الريبيرثات: {end - start}"
+            )
+        except (ValueError, IndexError) as exc:
+            self.rebirth_range_result.set(str(exc) or "تحقق من نطاق الريبيرث.")
 
     def calculate_expected_income(self):
         """Calculate a separate forecast; do not persist or sync it to the money ledger."""
