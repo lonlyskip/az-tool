@@ -833,9 +833,9 @@ class AzToolApp:
                     # Restrict OCR to that area to avoid unrelated HUD text.
                     left_lower_panel = {
                         "left": monitor["left"],
-                        "top": monitor["top"] + int(monitor["height"] * 0.45),
-                        "width": max(1, int(monitor["width"] * 0.42)),
-                        "height": max(1, int(monitor["height"] * 0.50)),
+                        "top": monitor["top"] + int(monitor["height"] * 0.35),
+                        "width": max(1, int(monitor["width"] * 0.50)),
+                        "height": max(1, int(monitor["height"] * 0.65)),
                     }
                     shot = capture.grab(left_lower_panel)
                     # Feed MSS RGB bytes directly to OCR; avoid an extra PIL image copy.
