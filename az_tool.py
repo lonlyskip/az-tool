@@ -52,7 +52,7 @@ def _ocr_number_tokens(text):
 
 
 def parse_game_monitor_text(detections):
-    """Read each stat independently from OCR text on the stats panel."""
+    """Match each OCR number to its nearest stat label; never reuse a value."""
     items = []
     for item in detections or []:
         if len(item) < 2:
@@ -72,55 +72,61 @@ def parse_game_monitor_text(detections):
         except (TypeError, ValueError, IndexError):
             continue
 
-    result = {}
-    for field, labels in GAME_LABELS.items():
-        choices = []
-        for label in items:
-            normalized = label["text"].lower()
-            normalized_ascii = re.sub(r"[^a-z0-9/ ]", " ", normalized)
-            normalized_all = re.sub(r"[^\w/ ]", " ", normalized, flags=re.UNICODE)
-            if not any(word in normalized_ascii or word in normalized_all for word in labels):
+    labels_found = []
+    for index, item in enumerate(items):
+        normalized = item["text"].lower()
+        normalized_ascii = re.sub(r"[^a-z0-9/ ]", " ", normalized)
+        normalized_all = re.sub(r"[^\\w/ ]", " ", normalized, flags=re.UNICODE)
+        for field, labels in GAME_LABELS.items():
+            if any(word in normalized_ascii or word in normalized_all for word in labels):
+                labels_found.append((field, index, item))
+                break
+
+    # Candidate tuples: (score, field, value-index, token).
+    candidates = []
+    for field, label_index, label in labels_found:
+        own = _ocr_number_tokens(label["text"])
+        if own:
+            candidates.append((-1000.0, field, label_index, own[-1].replace(" ", "")))
+
+        for value_index, value in enumerate(items):
+            if value_index == label_index:
+                continue
+            tokens = _ocr_number_tokens(value["text"])
+            if not tokens:
                 continue
 
-            # Some OCR engines return "Money 12.5sx" as one text box.
-            own = _ocr_number_tokens(label["text"])
-            if own:
-                choices.append((-1000, own[-1].replace(" ", "")))
+            dx = value["x"] - label["right"]
+            dy = value["cy"] - label["cy"]
+            same_row = -12 <= dx <= 260 and abs(dy) <= 28
+            directly_below = abs(value["cx"] - label["cx"]) <= 150 and 0 < dy <= 58
+            if not (same_row or directly_below):
+                continue
 
-            for value in items:
-                if value is label:
-                    continue
-                tokens = _ocr_number_tokens(value["text"])
-                if not tokens:
-                    continue
+            score = abs(dy) * 2.0 + max(0, dx) * 0.15
+            if directly_below and not same_row:
+                score += 30
+            candidates.append((score, field, value_index, tokens[0].replace(" ", "")))
 
-                dx = value["x"] - label["right"]
-                dy = value["cy"] - label["cy"]
-                # Accept same-row values and values directly below a label.
-                same_row = -18 <= dx <= 520 and abs(dy) <= 58
-                below = abs(value["cx"] - label["cx"]) <= 300 and 0 < dy <= 125
-                if not (same_row or below):
-                    continue
-
-                # Prefer same-row, close values; penalize values below the label.
-                score = abs(dy) * 1.4 + max(0, dx) * 0.10
-                if below and not same_row:
-                    score += 35
-                choices.append((score, tokens[0].replace(" ", "")))
-
-        if not choices:
+    result = {}
+    claimed_fields = set()
+    claimed_values = set()
+    for score, field, value_index, token in sorted(candidates, key=lambda row: row[0]):
+        if field in claimed_fields or value_index in claimed_values:
             continue
-
-        token = min(choices, key=lambda item: item[0])[1]
         try:
             if field in ("balance", "income"):
                 result[field] = str(parse_game_money(token))
             else:
                 digits = re.sub(r"[^0-9]", "", token)
-                if digits:
-                    result[field] = int(digits)
+                if not digits:
+                    continue
+                result[field] = int(digits)
         except (ValueError, ArithmeticError):
             continue
+        claimed_fields.add(field)
+        claimed_values.add(value_index)
+
     return result
 
 MONEY_UNITS = ("QA", "QI", "SX", "SP", "OC", "NO")
