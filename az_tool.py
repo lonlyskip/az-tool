@@ -30,7 +30,7 @@ EVENT_COOLDOWN_SECONDS = 1.5
 
 
 
-GAME_MONITOR_INTERVAL = 1.5
+GAME_MONITOR_INTERVAL = 2.5
 GAME_LABELS = {
     "balance": ("money", "cash", "coins", "balance", "wallet", "currency",
                 "فلوس", "الفلوس", "رصيد", "الرصيد", "مال"),
@@ -716,9 +716,11 @@ class AzToolApp:
             wraplength=520, justify="left"
         ).pack(anchor="w")
 
-        self.rebirth_card = self.card(self.gated_frame, "منطقة الهدف")
-        detected_frame = tk.Frame(self.rebirth_card, bg=PANEL)
-        detected_frame.pack(fill="x", pady=(2, 6))
+        monitor_frame = tk.Frame(self.forecast_card, bg=PANEL)
+        monitor_frame.pack(fill="x", pady=(12, 4))
+        self.label(monitor_frame, "إحصائيات اللعبة المباشرة", MUTED, 9).pack(anchor="w", pady=(0, 5))
+        detected_frame = tk.Frame(monitor_frame, bg=PANEL)
+        detected_frame.pack(fill="x")
         for column, (caption, variable) in enumerate((
             ("الرصيد", self.detected_balance),
             ("الدخل / ثانية", self.detected_income),
@@ -726,51 +728,31 @@ class AzToolApp:
             ("الريبيرث", self.detected_rebirth),
         )):
             cell = tk.Frame(detected_frame, bg=PANEL_2, padx=8, pady=6)
-            cell.pack(side="left", fill="x", expand=True, padx=(0 if column == 0 else 8, 0))
-            self.label(cell, caption, MUTED, 9).pack(anchor="w")
+            cell.pack(side="left", fill="x", expand=True, padx=(0 if column == 0 else 6, 0))
+            self.label(cell, caption, MUTED, 8).pack(anchor="w")
             tk.Label(cell, textvariable=variable, bg=PANEL_2, fg=TEXT,
-                     font=("Segoe UI", 10, "bold"), anchor="w").pack(fill="x", pady=(4, 0))
+                     font=("Segoe UI", 9, "bold"), anchor="w").pack(fill="x", pady=(3, 0))
+        tk.Label(monitor_frame, textvariable=self.monitor_status, bg=PANEL,
+                 fg=MUTED, font=("Segoe UI", 8), anchor="w").pack(anchor="w", pady=(5, 0))
 
-        goals_frame = tk.Frame(self.rebirth_card, bg=PANEL)
-        goals_frame.pack(fill="x", pady=(0, 8))
-        for column, (caption, variable) in enumerate((
-            ("هدف النطات", self.goal_jumps),
-            ("هدف الريبيرث", self.goal_rebirth),
-        )):
-            cell = tk.Frame(goals_frame, bg=PANEL)
-            cell.pack(side="left", fill="x", expand=True, padx=(0 if column == 0 else 8, 0))
-            self.label(cell, caption, MUTED, 9).pack(anchor="w")
-            self.entry(cell, variable).pack(fill="x", ipady=6, pady=(4, 0))
-
-        self.goal_notification_check = tk.Checkbutton(
-            self.rebirth_card, text="إرسال إشعارات عند تحقيق الهدف",
-            variable=self.goal_notifications, command=self.save_goal_notification_setting,
-            bg=PANEL, fg=TEXT, activebackground=PANEL, activeforeground=TEXT,
-            selectcolor=PANEL_2, font=("Segoe UI", 9), relief="flat",
-            highlightthickness=0, cursor="hand2"
-        )
-        self.goal_notification_check.pack(anchor="w", pady=(2, 0))
-        tk.Label(self.rebirth_card, textvariable=self.monitor_status, bg=PANEL,
-                 fg=MUTED, font=("Segoe UI", 8), anchor="w").pack(anchor="w", pady=(3, 0))
-
-        self.jump_card = self.card(self.gated_frame, "حاسبة النطات")
-        jump_row = tk.Frame(self.jump_card, bg=PANEL)
+        self.label(self.forecast_card, "حاسبة تكلفة النطات", MUTED, 9).pack(anchor="w", pady=(14, 5))
+        jump_row = tk.Frame(self.forecast_card, bg=PANEL)
         jump_row.pack(fill="x")
-        self.entry(jump_row, self.jump_from).pack(side="left", fill="x", expand=True, ipady=7)
+        self.entry(jump_row, self.jump_from).pack(side="left", fill="x", expand=True, ipady=6)
         self.label(jump_row, "إلى", MUTED, 9).pack(side="left", padx=7)
-        self.entry(jump_row, self.jump_to).pack(side="left", fill="x", expand=True, ipady=7)
-        self.button(self.jump_card, "احسب", self.calculate_jump_cost, color="#29314a").pack(fill="x", pady=(5, 3))
-        tk.Label(self.jump_card, textvariable=self.jump_result, bg=PANEL, fg=TEXT,
-                 font=("Segoe UI", 9, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(2, 0))
+        self.entry(jump_row, self.jump_to).pack(side="left", fill="x", expand=True, ipady=6)
+        self.button(self.forecast_card, "احسب تكلفة النطات", self.calculate_jump_cost, color="#29314a").pack(fill="x", pady=(5, 3))
+        tk.Label(self.forecast_card, textvariable=self.jump_result, bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 9, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(2, 5))
 
-        self.rebirth_range_card = self.card(self.gated_frame, "حاسبة الريبيرث")
-        rebirth_range_row = tk.Frame(self.rebirth_range_card, bg=PANEL)
+        self.label(self.forecast_card, "حاسبة تكلفة الريبيرث", MUTED, 9).pack(anchor="w", pady=(10, 5))
+        rebirth_range_row = tk.Frame(self.forecast_card, bg=PANEL)
         rebirth_range_row.pack(fill="x")
-        self.entry(rebirth_range_row, self.rebirth_from).pack(side="left", fill="x", expand=True, ipady=7)
+        self.entry(rebirth_range_row, self.rebirth_from).pack(side="left", fill="x", expand=True, ipady=6)
         self.label(rebirth_range_row, "إلى", MUTED, 9).pack(side="left", padx=7)
-        self.entry(rebirth_range_row, self.rebirth_to).pack(side="left", fill="x", expand=True, ipady=7)
-        self.button(self.rebirth_range_card, "احسب", self.calculate_rebirth_range, color="#29314a").pack(fill="x", pady=(5, 3))
-        tk.Label(self.rebirth_range_card, textvariable=self.rebirth_range_result, bg=PANEL, fg=TEXT,
+        self.entry(rebirth_range_row, self.rebirth_to).pack(side="left", fill="x", expand=True, ipady=6)
+        self.button(self.forecast_card, "احسب تكلفة الريبيرث", self.calculate_rebirth_range, color="#29314a").pack(fill="x", pady=(5, 3))
+        tk.Label(self.forecast_card, textvariable=self.rebirth_range_result, bg=PANEL, fg=TEXT,
                  font=("Segoe UI", 9, "bold"), wraplength=600, justify="left").pack(anchor="w", pady=(2, 0))
 
         self.radar_card = self.card(self.gated_frame, "Spawn Radar", "Fortnite • Go Up for Brainrot • Notification-area detection")
@@ -785,9 +767,6 @@ class AzToolApp:
 
         self.discord_card.pack_forget()
         self.afk_card.pack_forget()
-        self.rebirth_card.pack_forget()
-        self.jump_card.pack_forget()
-        self.rebirth_range_card.pack_forget()
         self.radar_card.pack_forget()
         # F5 is registered globally below so it works while Fortnite is focused.
 
@@ -805,7 +784,7 @@ class AzToolApp:
                 self.discord_card.pack(fill="x", padx=24, pady=8)
         else:
             self.discord_card.pack_forget()
-        for card in (self.afk_card, self.forecast_card, self.rebirth_card, self.jump_card, self.rebirth_range_card, self.radar_card):
+        for card in (self.afk_card, self.forecast_card, self.radar_card):
             if not card.winfo_manager():
                 card.pack(fill="x", padx=14, pady=4)
         self.start_game_monitor()
@@ -854,18 +833,22 @@ class AzToolApp:
                     # Restrict OCR to that area to avoid unrelated HUD text.
                     left_lower_panel = {
                         "left": monitor["left"],
-                        "top": monitor["top"] + int(monitor["height"] * 0.35),
-                        "width": max(1, int(monitor["width"] * 0.50)),
-                        "height": max(1, int(monitor["height"] * 0.65)),
+                        "top": monitor["top"] + int(monitor["height"] * 0.45),
+                        "width": max(1, int(monitor["width"] * 0.42)),
+                        "height": max(1, int(monitor["height"] * 0.50)),
                     }
                     shot = capture.grab(left_lower_panel)
-                    frame = Image.frombytes("RGB", shot.size, shot.rgb)
-                    detections, _elapsed = ocr(np.array(frame))
+                    # Feed MSS RGB bytes directly to OCR; avoid an extra PIL image copy.
+                    frame = np.frombuffer(shot.rgb, dtype=np.uint8).reshape((shot.height, shot.width, 3))
+                    detections, _elapsed = ocr(frame)
                     values = parse_game_monitor_text(detections or [])
                     if values:
                         self._monitor_last_seen = time.time()
+                        changed = any(self._monitor_last_values.get(key) != value for key, value in values.items())
                         self._monitor_last_values.update(values)
-                        self.root.after(0, lambda data=dict(self._monitor_last_values): self._apply_game_monitor_values(data))
+                        if changed:
+                            snapshot = dict(self._monitor_last_values)
+                            self.root.after(0, lambda data=snapshot: self._apply_game_monitor_values(data))
                     elif time.time() - self._monitor_last_seen > 8:
                         self.root.after(0, lambda: self.monitor_status.set("اللعبة ظاهرة • لم يتم التعرف على الإحصائيات"))
                 except Exception as exc:
@@ -939,7 +922,6 @@ class AzToolApp:
         self.discord_card.pack_forget()
         self.afk_card.pack_forget()
         self.forecast_card.pack_forget()
-        self.rebirth_card.pack_forget()
         self.radar_card.pack_forget()
 
     def activate(self):
