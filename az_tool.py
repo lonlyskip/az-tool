@@ -29,8 +29,8 @@ POLL_SECONDS = 0.50
 EVENT_COOLDOWN_SECONDS = 1.5
 
 
-MONEY_UNITS = ("QI", "SX", "SP", "OC", "NO")
-UNIT_TO_QI = {unit: 1000 ** index for index, unit in enumerate(MONEY_UNITS)}
+MONEY_UNITS = ("QA", "QI", "SX", "SP", "OC", "NO")
+UNIT_TO_QI = {"QA": 0.001, "QI": 1, "SX": 1000, "SP": 1000000, "OC": 1000000000, "NO": 1000000000000}
 
 
 def calculate_afk_earnings(income_per_second, elapsed_seconds):
@@ -53,7 +53,9 @@ def income_to_qi(amount, unit):
 
 def format_money(amount_qi):
     amount = max(0.0, float(amount_qi or 0))
-    unit_index = 0
+    if 0 < amount < 1:
+        return f"{amount * 1000:,.2f} QA"
+    unit_index = 1
     while amount >= 1000 and unit_index < len(MONEY_UNITS) - 1:
         amount /= 1000
         unit_index += 1
@@ -63,12 +65,17 @@ def format_money(amount_qi):
 def format_expected_money(amount_qi):
     """Format forecast output in the largest available unit without changing tracked money."""
     amount = max(0.0, float(amount_qi or 0))
-    unit_index = 0
-    while amount >= 1000 and unit_index < len(MONEY_UNITS) - 1:
-        amount /= 1000
-        unit_index += 1
+    if 0 < amount < 1:
+        amount *= 1000
+        unit = "qa"
+    else:
+        unit_index = 1
+        while amount >= 1000 and unit_index < len(MONEY_UNITS) - 1:
+            amount /= 1000
+            unit_index += 1
+        unit = MONEY_UNITS[unit_index].lower()
     number = f"{amount:,.2f}".rstrip("0").rstrip(".")
-    return f"{number}{MONEY_UNITS[unit_index].lower()}"
+    return f"{number}{unit}"
 
 
 AFK_LOADING_TERMS = (
